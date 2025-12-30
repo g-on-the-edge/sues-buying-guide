@@ -14,20 +14,7 @@ function AppContent() {
   const [data, setData] = useState<ParseResponse | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('attention');
 
-  // Show loading screen while checking auth
-  if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="spinner"></div>
-      </div>
-    );
-  }
-
-  // Show login if not authenticated
-  if (!user) {
-    return <Login />;
-  }
-
+  // All hooks must be called before any conditional returns
   const handleUpload = useCallback(async (file: File) => {
     setIsLoading(true);
     setError(null);
@@ -68,11 +55,25 @@ function AppContent() {
     }
   }, []);
 
-  const handleReset = () => {
+  const handleReset = useCallback(() => {
     setData(null);
     setError(null);
     setActiveTab('attention');
-  };
+  }, []);
+
+  // Show loading screen while checking auth
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="spinner"></div>
+      </div>
+    );
+  }
+
+  // Show login if not authenticated
+  if (!user) {
+    return <Login />;
+  }
 
   return (
     <div className="app">
