@@ -1,10 +1,14 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Login } from './components/Login';
 import { Upload } from './components/Upload';
 import { Dashboard } from './components/Dashboard';
 import { ItemTable } from './components/ItemTable';
 import { ExportButtons } from './components/ExportButtons';
+import { ActionRequiredBanner } from './components/ActionRequiredBanner';
+import { POSummaryBanner } from './components/POSummaryBanner';
+import { CallList } from './components/CallList';
+import { PurchaseOrdersTab } from './components/PurchaseOrdersTab';
 import { ParseResponse, TabType } from './types';
 
 function AppContent() {
@@ -13,6 +17,13 @@ function AppContent() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ParseResponse | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('attention');
+  const [showCallList, setShowCallList] = useState(false);
+
+  // Calculate urgent POs
+  const urgentPOs = useMemo(() => {
+    if (!data?.purchaseOrders) return [];
+    return data.purchaseOrders.filter(po => po.isUrgent);
+  }, [data?.purchaseOrders]);
 
   // All hooks must be called before any conditional returns
   const handleUpload = useCallback(async (file: File) => {
@@ -59,6 +70,16 @@ function AppContent() {
     setData(null);
     setError(null);
     setActiveTab('attention');
+    setShowCallList(false);
+  }, []);
+
+  const handleViewCallList = useCallback(() => {
+    setShowCallList(true);
+    setActiveTab('calllist');
+  }, []);
+
+  const handleViewPOs = useCallback(() => {
+    setActiveTab('pos');
   }, []);
 
   // Show loading screen while checking auth
@@ -116,6 +137,22 @@ function AppContent() {
           </>
         ) : (
           <>
+            {/* Action Required Banner - Show at TOP when urgent POs exist */}
+            {urgentPOs.length > 0 && (
+              <ActionRequiredBanner
+                urgentPOs={urgentPOs}
+                onViewDetails={handleViewCallList}
+              />
+            )}
+
+            {/* PO Summary Banner */}
+            {data.poStats && data.poStats.totalPOs > 0 && (
+              <POSummaryBanner
+                poStats={data.poStats}
+                onClick={handleViewPOs}
+              />
+            )}
+
             <Dashboard
               stats={data.stats}
               activeTab={activeTab}
@@ -140,9 +177,33 @@ function AppContent() {
               </div>
             )}
 
-            <ExportButtons items={data.items} activeTab={activeTab} />
+            <ExportButtons
+              items={data.items}
+              activeTab={activeTab}
+              purchaseOrders={data.purchaseOrders}
+              specialOrders={data.specialOrders}
+              poStats={data.poStats}
+            />
 
-            <ItemTable items={data.items} activeTab={activeTab} />
+            {/* Render content based on active tab */}
+            {activeTab === 'calllist' && showCallList && (
+              <CallList
+                urgentPOs={urgentPOs}
+                onClose={() => {
+                  setShowCallList(false);
+                  setActiveTab('attention');
+                }}
+              />
+            )}
+            {activeTab === 'pos' && (
+              <PurchaseOrdersTab
+                purchaseOrders={data.purchaseOrders || []}
+                specialOrders={data.specialOrders || []}
+              />
+            )}
+            {activeTab !== 'calllist' && activeTab !== 'pos' && (
+              <ItemTable items={data.items} activeTab={activeTab} />
+            )}
           </>
         )}
       </main>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ParsedItem, TabType } from '../types';
+import { ParsedItem, TabType, PurchaseOrder, SpecialOrder, POStats } from '../types';
 import {
   exportToExcel,
   exportToCSV,
@@ -14,9 +14,18 @@ import {
 interface ExportButtonsProps {
   items: ParsedItem[];
   activeTab: TabType;
+  purchaseOrders?: PurchaseOrder[];
+  specialOrders?: SpecialOrder[];
+  poStats?: POStats;
 }
 
-export const ExportButtons: React.FC<ExportButtonsProps> = ({ items, activeTab }) => {
+export const ExportButtons: React.FC<ExportButtonsProps> = ({
+  items,
+  activeTab,
+  purchaseOrders = [],
+  specialOrders = [],
+  poStats,
+}) => {
   const [copied, setCopied] = useState(false);
 
   const getCurrentViewItems = (): ParsedItem[] => {
@@ -35,7 +44,7 @@ export const ExportButtons: React.FC<ExportButtonsProps> = ({ items, activeTab }
 
   const handleExcelExport = () => {
     const timestamp = new Date().toISOString().slice(0, 10);
-    exportToExcel(items, `sues-buying-guide-${timestamp}.xlsx`);
+    exportToExcel(items, `sues-buying-guide-${timestamp}.xlsx`, purchaseOrders, specialOrders);
   };
 
   const handleCSVExport = () => {
@@ -45,7 +54,7 @@ export const ExportButtons: React.FC<ExportButtonsProps> = ({ items, activeTab }
   };
 
   const handleCopyEmail = async () => {
-    const summary = generateEmailSummary(items);
+    const summary = generateEmailSummary(items, purchaseOrders, specialOrders, poStats);
     const success = await copyToClipboard(summary);
     if (success) {
       setCopied(true);

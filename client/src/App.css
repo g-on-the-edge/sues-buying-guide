@@ -1719,3 +1719,655 @@ body {
   background: rgba(99, 102, 241, 0.3);
   color: inherit;
 }
+
+/* ===================================
+   Action Required Banner
+   =================================== */
+
+.action-required-banner {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.08) 100%);
+  border: 2px solid var(--color-critical);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  margin-bottom: var(--spacing-lg);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-lg);
+  animation: scaleIn 0.4s ease-out, pulse 3s ease-in-out infinite;
+  box-shadow: 0 4px 20px var(--color-critical-glow);
+}
+
+.action-required-banner .banner-content {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+.action-required-banner .banner-icon {
+  width: 48px;
+  height: 48px;
+  background: var(--color-critical);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px var(--color-critical-glow);
+}
+
+.action-required-banner .banner-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.action-required-banner .banner-text {
+  flex: 1;
+}
+
+.action-required-banner .banner-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-critical);
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.action-required-banner .banner-subtitle {
+  font-size: 0.9rem;
+  color: #dc2626;
+  margin: 0;
+}
+
+.action-required-banner .overdue-badge {
+  display: inline-block;
+  background: var(--color-critical);
+  color: white;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 0.75rem;
+  margin-left: var(--spacing-xs);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.action-required-banner .today-badge {
+  display: inline-block;
+  background: #f97316;
+  color: white;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 0.75rem;
+  margin-left: var(--spacing-xs);
+}
+
+.action-required-banner .separator {
+  margin: 0 var(--spacing-xs);
+  color: var(--color-text-muted);
+}
+
+.view-calllist-btn {
+  background: var(--color-critical);
+  color: white;
+  border: none;
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-radius: var(--radius-lg);
+  font-weight: 600;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  white-space: nowrap;
+  box-shadow: 0 4px 12px var(--color-critical-glow);
+}
+
+.view-calllist-btn:hover {
+  background: #dc2626;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px var(--color-critical-glow);
+}
+
+/* ===================================
+   PO Summary Banner
+   =================================== */
+
+.po-summary-banner {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-md) var(--spacing-xl);
+  margin-bottom: var(--spacing-lg);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  animation: fadeInUp 0.4s ease-out 0.1s both;
+}
+
+.po-summary-banner:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.08) 100%);
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.po-summary-banner .banner-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.po-summary-banner .banner-icon {
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.po-summary-banner .banner-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.po-summary-banner .banner-title {
+  font-weight: 700;
+  color: #1d4ed8;
+  font-size: 1rem;
+}
+
+.po-summary-banner .banner-stats {
+  display: flex;
+  gap: var(--spacing-lg);
+  font-size: 0.9rem;
+  color: var(--color-text-secondary);
+}
+
+.po-summary-banner .banner-stats strong {
+  color: var(--color-text);
+}
+
+.po-summary-banner .banner-right {
+  display: flex;
+  gap: var(--spacing-md);
+  font-size: 0.85rem;
+}
+
+.po-summary-banner .ready-count {
+  color: var(--color-success);
+  font-weight: 500;
+}
+
+.po-summary-banner .doq-count {
+  color: var(--color-attention);
+  font-weight: 500;
+}
+
+.po-summary-banner .pending-count {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+/* ===================================
+   Call List Component
+   =================================== */
+
+.call-list {
+  background: var(--color-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  animation: fadeInUp 0.4s ease-out;
+}
+
+.call-list.empty {
+  padding: var(--spacing-3xl);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.call-list-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.call-list-header .header-icon {
+  width: 40px;
+  height: 40px;
+  background: var(--color-critical);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.call-list-header .header-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.call-list-header h2 {
+  flex: 1;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-critical);
+  margin: 0;
+}
+
+.call-list-header .close-btn {
+  width: 36px;
+  height: 36px;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 1.5rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-base);
+}
+
+.call-list-header .close-btn:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.call-list .vendor-groups {
+  padding: var(--spacing-lg);
+}
+
+.vendor-call-group {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--spacing-lg);
+  overflow: hidden;
+  animation: fadeInUp 0.3s ease-out backwards;
+}
+
+.vendor-call-group:nth-child(1) { animation-delay: 0.05s; }
+.vendor-call-group:nth-child(2) { animation-delay: 0.1s; }
+.vendor-call-group:nth-child(3) { animation-delay: 0.15s; }
+
+.vendor-call-group .vendor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-card);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.vendor-call-group .vendor-info h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 var(--spacing-xs) 0;
+}
+
+.vendor-call-group .vendor-info .vendor-id {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.vendor-call-group .vendor-urgency {
+  text-align: right;
+}
+
+.urgency-badge {
+  display: inline-block;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.urgency-badge.urgency-overdue {
+  background: var(--color-critical);
+  color: white;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.urgency-badge.urgency-today {
+  background: #f97316;
+  color: white;
+}
+
+.urgency-badge.urgency-soon {
+  background: var(--color-attention);
+  color: white;
+}
+
+.call-list .po-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.call-list .po-table th,
+.call-list .po-table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.call-list .po-table th {
+  background: rgba(99, 102, 241, 0.03);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+}
+
+.call-list .po-table .text-right {
+  text-align: right;
+}
+
+.call-list .po-number {
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-weight: 600;
+}
+
+.call-list .issues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+}
+
+.issue-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.1) 100%);
+  color: var(--color-critical);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 600;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.vendor-call-group .vendor-summary {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-card);
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  border-top: 1px solid var(--color-border);
+}
+
+/* ===================================
+   Purchase Orders Tab
+   =================================== */
+
+.purchase-orders-tab {
+  background: var(--color-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  animation: fadeInUp 0.4s ease-out;
+}
+
+.view-toggle {
+  display: flex;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.toggle-btn {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.toggle-btn:hover {
+  background: rgba(99, 102, 241, 0.05);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.toggle-btn.active {
+  background: var(--gradient-primary);
+  border-color: var(--color-primary);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.pos-view,
+.special-orders-view {
+  padding: var(--spacing-lg);
+}
+
+.empty-message {
+  text-align: center;
+  padding: var(--spacing-3xl);
+  color: var(--color-text-muted);
+}
+
+.date-group {
+  margin-bottom: var(--spacing-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  animation: fadeInUp 0.3s ease-out backwards;
+}
+
+.date-group:nth-child(1) { animation-delay: 0.05s; }
+.date-group:nth-child(2) { animation-delay: 0.1s; }
+.date-group:nth-child(3) { animation-delay: 0.15s; }
+
+.date-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: linear-gradient(135deg, var(--color-bg) 0%, rgba(59, 130, 246, 0.05) 100%);
+  font-weight: 600;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.date-header .date-icon {
+  color: #3b82f6;
+}
+
+.date-header .date-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.purchase-orders-tab .po-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.purchase-orders-tab .po-table th,
+.purchase-orders-tab .po-table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.purchase-orders-tab .po-table th {
+  background: rgba(99, 102, 241, 0.03);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+}
+
+.purchase-orders-tab .po-table .text-right {
+  text-align: right;
+}
+
+.purchase-orders-tab .po-number {
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-weight: 600;
+}
+
+.purchase-orders-tab .vendor-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.purchase-orders-tab .urgent-row {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.08) 0%, rgba(239, 68, 68, 0.03) 100%);
+}
+
+.purchase-orders-tab .edi.confirmed {
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+.purchase-orders-tab .edi.missing {
+  color: var(--color-critical);
+  font-weight: 600;
+}
+
+.purchase-orders-tab .appointment.missing {
+  color: var(--color-text-muted);
+}
+
+/* Special Orders Table */
+
+.special-orders-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.special-orders-table th,
+.special-orders-table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.special-orders-table th {
+  background: linear-gradient(180deg, var(--color-bg) 0%, rgba(99, 102, 241, 0.03) 100%);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary);
+  position: sticky;
+  top: 0;
+}
+
+.special-orders-table .text-right {
+  text-align: right;
+}
+
+.special-orders-table .prod-no {
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-weight: 600;
+}
+
+.special-orders-table .description {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.special-orders-table .customer {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.status-badge.ready {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.1) 100%);
+  color: var(--color-success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status-badge.doq {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.1) 100%);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.status-badge.pending {
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+/* ===================================
+   Responsive Adjustments for PO Components
+   =================================== */
+
+@media (max-width: 768px) {
+  .action-required-banner {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .action-required-banner .banner-content {
+    flex-direction: column;
+  }
+
+  .po-summary-banner {
+    flex-direction: column;
+    gap: var(--spacing-md);
+  }
+
+  .po-summary-banner .banner-left {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .po-summary-banner .banner-stats {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--spacing-sm);
+  }
+
+  .po-summary-banner .banner-right {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .vendor-call-group .vendor-header {
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .view-toggle {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}

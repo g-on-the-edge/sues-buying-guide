@@ -2,6 +2,7 @@ import pdfParse from 'pdf-parse';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import { ParsedItem, ParseStats, ParseResponse } from '../types';
 import { parseAllLines } from './lineParser';
+import { parseAllPOs, calculatePOStats, extractReportDate } from './poParser';
 
 // Disable worker for Node.js environment
 GlobalWorkerOptions.workerSrc = '';
@@ -159,18 +160,33 @@ export async function parsePdf(buffer: Buffer): Promise<ParseResponse> {
     throw new Error('PDF extraction produced insufficient or invalid content');
   }
 
-  // Parse the extracted text
+  // Extract report date from the PDF
+  const reportDate = extractReportDate(extractedText) || new Date();
+  const reportDateStr = reportDate.toISOString().split('T')[0];
+
+  // Parse the extracted text for items
   const { items, errors } = parseAllLines(extractedText);
 
+  // Parse POs and Special Orders
+  const { purchaseOrders, specialOrders, errors: poErrors } = parseAllPOs(
+    extractedText,
+    reportDate
+  );
+
   // Add any parse errors to response
-  parseErrors.push(...errors);
+  parseErrors.push(...errors, ...poErrors);
 
   // Calculate statistics
   const stats = calculateStats(items);
+  const poStats = calculatePOStats(purchaseOrders, specialOrders, reportDate);
 
   return {
     items,
+    purchaseOrders,
+    specialOrders,
     stats,
+    poStats,
+    reportDate: reportDateStr,
     parseErrors,
   };
 }

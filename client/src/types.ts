@@ -41,13 +41,78 @@ export interface ParseStats {
   vendorCount: number;
 }
 
+/**
+ * Purchase Order from Open P.O. Summary
+ */
+export interface PurchaseOrder {
+  poNumber: string;           // 5-digit (e.g., "60649")
+  vendorId: string;
+  vendorName: string;
+  dueDate: string;            // MM/DD/YY
+  totalCases: number;
+  status: string;             // "Conf:Recpt/Qty/Costs.", "Conf:EDI Costs", etc.
+  edi: boolean | null;        // true = EDI confirmed, false/null = NOT confirmed
+  appointment: string | null; // "01/02/26 06:00"
+  pickUp: string | null;
+  entered: string | null;     // Date entered
+
+  // COMPUTED FIELDS
+  daysUntilDue: number;       // Days from report date to due date
+  isUrgent: boolean;          // true if needs immediate attention
+  urgentReasons: string[];    // ["No EDI confirmation", "No appointment"]
+}
+
+/**
+ * Special Order (Customer Orders)
+ */
+export interface SpecialOrder {
+  prodNo: string;
+  description: string;
+  custNo: string;
+  customerName: string;
+  dateEntered: string;
+  dateDoq: string | null;
+  dateDue: string | null;
+  poNumber: string | null;
+  qtyOrdered: number;
+  onHand: number;
+  status: 'Ready' | '*DOQ*' | 'Order';
+  vendorId: string;
+  vendorName: string;
+}
+
+/**
+ * PO Statistics
+ */
+export interface POStats {
+  totalPOs: number;
+  totalCases: number;
+  vendorsWithPOs: number;
+  thisWeekArrivals: number;
+  specialOrderCount: number;
+  readyCount: number;
+  doqCount: number;
+  pendingCount: number;
+
+  // URGENT PO STATS
+  urgentPOCount: number;
+  urgentCases: number;
+  missingEDICount: number;
+  missingAppointmentCount: number;
+  overduePOCount: number;
+}
+
 export interface ParseResponse {
   items: ParsedItem[];
+  purchaseOrders: PurchaseOrder[];
+  specialOrders: SpecialOrder[];
   stats: ParseStats;
+  poStats: POStats;
+  reportDate: string | null;
   parseErrors: string[];
 }
 
-export type TabType = 'attention' | 'critical' | 'watch' | 'review' | 'all';
+export type TabType = 'attention' | 'critical' | 'watch' | 'review' | 'all' | 'pos' | 'calllist';
 
 export interface VendorGroup {
   vendorId: string;

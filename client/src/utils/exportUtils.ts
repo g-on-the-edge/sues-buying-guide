@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { ParsedItem, VendorGroup } from '../types';
+import { ParsedItem, VendorGroup, PurchaseOrder, SpecialOrder } from '../types';
 
 /**
  * Filter items by attention level (HIGH confidence, daysSply <= 5)
@@ -123,34 +123,122 @@ function itemsToSheetData(items: ParsedItem[]): object[] {
 }
 
 /**
- * Export to Excel with multiple sheets
+ * Convert urgent POs to call list sheet data
  */
-export function exportToExcel(items: ParsedItem[], filename: string = 'sues-buying-guide.xlsx'): void {
+function urgentPOsToSheetData(pos: PurchaseOrder[]): object[] {
+  return pos
+    .sort((a, b) => a.daysUntilDue - b.daysUntilDue)
+    .map(po => ({
+      'Vendor': po.vendorName,
+      'Vendor ID': po.vendorId,
+      'PO#': po.poNumber,
+      'Due Date': po.dueDate,
+      'Days Until Due': po.daysUntilDue,
+      'Cases': po.totalCases,
+      'EDI Confirmed': po.edi ? 'Yes' : 'NO',
+      'Appointment': po.appointment || 'NONE',
+      'Issues': po.urgentReasons.join(', '),
+      'Status': po.status,
+    }));
+}
+
+/**
+ * Convert all POs to sheet data
+ */
+function posToSheetData(pos: PurchaseOrder[]): object[] {
+  return pos.map(po => ({
+    'PO#': po.poNumber,
+    'Vendor': po.vendorName,
+    'Vendor ID': po.vendorId,
+    'Due Date': po.dueDate,
+    'Days Until Due': po.daysUntilDue,
+    'Cases': po.totalCases,
+    'Status': po.status,
+    'EDI': po.edi ? 'Yes' : po.edi === false ? 'No' : '-',
+    'Appointment': po.appointment || '-',
+    'Entered': po.entered || '-',
+    'Urgent': po.isUrgent ? 'YES' : '',
+    'Issues': po.urgentReasons.join(', '),
+  }));
+}
+
+/**
+ * Convert special orders to sheet data
+ */
+function specialOrdersToSheetData(orders: SpecialOrder[]): object[] {
+  return orders.map(so => ({
+    'Prod#': so.prodNo,
+    'Description': so.description,
+    'Customer #': so.custNo,
+    'Customer Name': so.customerName,
+    'Qty Ordered': so.qtyOrdered,
+    'On Hand': so.onHand,
+    'Status': so.status === '*DOQ*' ? 'On Order' : so.status,
+    'PO#': so.poNumber || '-',
+    'Date Entered': so.dateEntered,
+    'Date DOQ': so.dateDoq || '-',
+    'Date Due': so.dateDue || '-',
+    'Vendor': so.vendorName,
+    'Vendor ID': so.vendorId,
+  }));
+}
+
+/**
+ * Export to Excel with multiple sheets (including PO data)
+ */
+export function exportToExcel(
+  items: ParsedItem[],
+  filename: string = 'sues-buying-guide.xlsx',
+  purchaseOrders: PurchaseOrder[] = [],
+  specialOrders: SpecialOrder[] = []
+): void {
   const wb = XLSX.utils.book_new();
 
-  // Attention sheet (HIGH confidence, ≤5 days)
+  // Sheet 1: CALL LIST - Urgent POs (FIRST - most important!)
+  const urgentPOs = purchaseOrders.filter(po => po.isUrgent);
+  if (urgentPOs.length > 0) {
+    const callListData = urgentPOsToSheetData(urgentPOs);
+    const callListSheet = XLSX.utils.json_to_sheet(callListData);
+    XLSX.utils.book_append_sheet(wb, callListSheet, 'CALL LIST');
+  }
+
+  // Sheet 2: Attention (HIGH confidence, ≤5 days)
   const attentionItems = getAttentionItems(items);
   const attentionData = itemsToSheetData(attentionItems);
   const attentionSheet = XLSX.utils.json_to_sheet(attentionData);
-  XLSX.utils.book_append_sheet(wb, attentionSheet, 'Attention (HIGH)');
+  XLSX.utils.book_append_sheet(wb, attentionSheet, 'Attention');
 
-  // Critical sheet (HIGH confidence, ≤2 days)
+  // Sheet 3: Critical (HIGH confidence, ≤2 days)
   const criticalItems = getCriticalItems(items);
   const criticalData = itemsToSheetData(criticalItems);
   const criticalSheet = XLSX.utils.json_to_sheet(criticalData);
-  XLSX.utils.book_append_sheet(wb, criticalSheet, 'Critical (HIGH)');
+  XLSX.utils.book_append_sheet(wb, criticalSheet, 'Critical');
 
-  // Watch List sheet (MEDIUM confidence, ≤5 days)
+  // Sheet 4: Watch List (MEDIUM confidence, ≤5 days)
   const watchItems = getWatchListItems(items);
   const watchData = itemsToSheetData(watchItems);
   const watchSheet = XLSX.utils.json_to_sheet(watchData);
-  XLSX.utils.book_append_sheet(wb, watchSheet, 'Watch List (MED)');
+  XLSX.utils.book_append_sheet(wb, watchSheet, 'Watch List');
 
-  // Needs Review sheet (LOW confidence)
+  // Sheet 5: All Purchase Orders
+  if (purchaseOrders.length > 0) {
+    const posData = posToSheetData(purchaseOrders);
+    const posSheet = XLSX.utils.json_to_sheet(posData);
+    XLSX.utils.book_append_sheet(wb, posSheet, 'All POs');
+  }
+
+  // Sheet 6: Special Orders
+  if (specialOrders.length > 0) {
+    const soData = specialOrdersToSheetData(specialOrders);
+    const soSheet = XLSX.utils.json_to_sheet(soData);
+    XLSX.utils.book_append_sheet(wb, soSheet, 'Special Orders');
+  }
+
+  // Sheet 7: Needs Review (LOW confidence)
   const reviewItems = getNeedsReviewItems(items);
   const reviewData = itemsToSheetData(reviewItems);
   const reviewSheet = XLSX.utils.json_to_sheet(reviewData);
-  XLSX.utils.book_append_sheet(wb, reviewSheet, 'Needs Review (LOW)');
+  XLSX.utils.book_append_sheet(wb, reviewSheet, 'Needs Review');
 
   // Download
   XLSX.writeFile(wb, filename);
@@ -174,84 +262,118 @@ export function exportToCSV(items: ParsedItem[], filename: string = 'sues-buying
 }
 
 /**
- * Generate email summary text
+ * Group POs by vendor name
  */
-export function generateEmailSummary(items: ParsedItem[]): string {
+function groupPOsByVendor(pos: PurchaseOrder[]): Record<string, PurchaseOrder[]> {
+  return pos.reduce((acc, po) => {
+    if (!acc[po.vendorName]) {
+      acc[po.vendorName] = [];
+    }
+    acc[po.vendorName].push(po);
+    return acc;
+  }, {} as Record<string, PurchaseOrder[]>);
+}
+
+/**
+ * Generate email summary text (with PO data)
+ */
+export function generateEmailSummary(
+  items: ParsedItem[],
+  purchaseOrders: PurchaseOrder[] = [],
+  specialOrders: SpecialOrder[] = [],
+  poStats?: { totalPOs: number; totalCases: number; thisWeekArrivals: number; urgentPOCount: number }
+): string {
   const attentionItems = getAttentionItems(items);
   const criticalItems = getCriticalItems(items);
   const watchItems = getWatchListItems(items);
   const reviewItems = getNeedsReviewItems(items);
   const groups = groupByVendor(attentionItems);
 
-  let summary = `INVENTORY ATTENTION REPORT\n`;
+  const urgentPOs = purchaseOrders.filter(po => po.isUrgent);
+  const urgentByVendor = groupPOsByVendor(urgentPOs);
+
+  let summary = `SUE'S BUYING GUIDE - DAILY REPORT\n`;
   summary += `Generated: ${new Date().toLocaleString()}\n`;
-  summary += `${'='.repeat(50)}\n\n`;
+  summary += `${'='.repeat(60)}\n\n`;
 
-  summary += `HIGH CONFIDENCE ATTENTION (${attentionItems.length} items)\n`;
-  summary += `${'-'.repeat(40)}\n`;
-  summary += `  🔴 CRITICAL (Sply ≤ 2): ${criticalItems.length} items\n`;
-  summary += `  🟡 WARNING (Sply 3-5): ${attentionItems.length - criticalItems.length} items\n\n`;
+  // URGENT PO SECTION (if any)
+  if (urgentPOs.length > 0) {
+    const urgentCases = urgentPOs.reduce((sum, po) => sum + po.totalCases, 0);
+    summary += `${'!'.repeat(60)}\n`;
+    summary += `ACTION REQUIRED - CALL THESE VENDORS NOW\n`;
+    summary += `${urgentPOs.length} POs missing EDI confirmation or appointment\n`;
+    summary += `${urgentCases.toLocaleString()} cases at risk\n`;
+    summary += `${'!'.repeat(60)}\n\n`;
 
-  summary += `WATCH LIST - MEDIUM CONFIDENCE (${watchItems.length} items)\n`;
-  summary += `${'-'.repeat(40)}\n`;
-  summary += `  🟠 May need attention, verify data\n\n`;
-
-  summary += `NEEDS REVIEW (${reviewItems.length} items)\n`;
-  summary += `${'-'.repeat(40)}\n`;
-  summary += `  ❓ Insufficient data for classification\n`;
-  summary += `${'='.repeat(50)}\n\n`;
-
-  if (criticalItems.length > 0) {
-    summary += `CRITICAL ITEMS DETAIL:\n`;
-    summary += `${'-'.repeat(40)}\n`;
-    for (const item of criticalItems) {
-      summary += `  ${item.prodNo} - ${item.brand} ${item.description}\n`;
-      summary += `    Vendor: ${item.vendorName}\n`;
-      summary += `    Avail: ${item.avail ?? 'N/A'} | On Order: ${item.onOrder ?? '-'} | Days Supply: ${item.daysSply} ⚠️\n\n`;
+    for (const [vendor, pos] of Object.entries(urgentByVendor)) {
+      summary += `📞 ${vendor} (${pos[0].vendorId})\n`;
+      for (const po of pos) {
+        const urgency = po.daysUntilDue < 0 ? '⛔ OVERDUE' :
+                        po.daysUntilDue === 0 ? '🔴 TODAY' :
+                        `⚠️ ${po.daysUntilDue} days`;
+        summary += `   PO# ${po.poNumber} | Due: ${po.dueDate} ${urgency} | ${po.totalCases.toLocaleString()} cases\n`;
+        summary += `   Issues: ${po.urgentReasons.join(', ')}\n`;
+      }
+      summary += '\n';
     }
+  } else {
+    summary += `✅ No urgent POs requiring immediate attention\n\n`;
   }
 
-  if (watchItems.length > 0) {
-    summary += `\nWATCH LIST ITEMS (MEDIUM CONFIDENCE):\n`;
-    summary += `${'-'.repeat(40)}\n`;
-    for (const item of watchItems.slice(0, 15)) {
-      summary += `  ${item.prodNo} - ${item.brand} ${item.description}\n`;
-      summary += `    Vendor: ${item.vendorName}\n`;
-      summary += `    Avail: ${item.avail ?? 'N/A'} | Days Supply: ${item.daysSply} | Cols: ${item.numericColumns}\n`;
-    }
-    if (watchItems.length > 15) {
-      summary += `  ... and ${watchItems.length - 15} more\n`;
-    }
-    summary += '\n';
+  summary += `${'='.repeat(60)}\n`;
+  summary += `INVENTORY SUMMARY\n`;
+  summary += `${'-'.repeat(60)}\n`;
+  summary += `  🔴 CRITICAL (≤2 days):     ${criticalItems.length} items\n`;
+  summary += `  🟡 ATTENTION (≤5 days):    ${attentionItems.length} items\n`;
+  summary += `  🟠 WATCH LIST (medium):    ${watchItems.length} items\n`;
+  summary += `  ⚪ NEEDS REVIEW:           ${reviewItems.length} items\n\n`;
+
+  if (poStats) {
+    summary += `${'='.repeat(60)}\n`;
+    summary += `PURCHASE ORDERS\n`;
+    summary += `${'-'.repeat(60)}\n`;
+    summary += `  📦 Open POs:        ${poStats.totalPOs}\n`;
+    summary += `  📦 Total Cases:     ${poStats.totalCases.toLocaleString()}\n`;
+    summary += `  📦 This Week:       ${poStats.thisWeekArrivals} arrivals\n`;
+    summary += `  🚨 Urgent (call):   ${poStats.urgentPOCount}\n\n`;
+
+    const readyCount = specialOrders.filter(so => so.status === 'Ready').length;
+    const doqCount = specialOrders.filter(so => so.status === '*DOQ*').length;
+    const pendingCount = specialOrders.filter(so => so.status === 'Order').length;
+
+    summary += `  Special Orders:\n`;
+    summary += `    ✅ Ready:         ${readyCount}\n`;
+    summary += `    ⏳ On Order:      ${doqCount}\n`;
+    summary += `    📝 Pending:       ${pendingCount}\n\n`;
   }
 
-  summary += `\nATTENTION BY VENDOR:\n`;
-  summary += `${'='.repeat(50)}\n\n`;
+  summary += `${'='.repeat(60)}\n`;
+  summary += `CRITICAL ITEMS BY VENDOR\n`;
+  summary += `${'-'.repeat(60)}\n`;
 
   for (const group of groups) {
-    summary += `${group.vendorName} (ID: ${group.vendorId})\n`;
-    summary += `  Critical: ${group.criticalCount}, Attention: ${group.attentionCount}\n`;
-    summary += `${'-'.repeat(40)}\n`;
+    const criticalInGroup = group.items.filter(i => i.daysSply !== null && i.daysSply <= 2);
+    if (criticalInGroup.length === 0) continue;
 
-    for (const item of group.items) {
-      if (item.confidence === 'high' && item.daysSply !== null && item.daysSply <= 5) {
-        const critical = item.daysSply <= 2 ? ' [CRITICAL]' : '';
-        summary += `  ${item.prodNo} - ${item.brand} ${item.description}${critical}\n`;
-        summary += `    Avail: ${item.avail ?? 'N/A'}, On Order: ${item.onOrder ?? '-'}, Days: ${item.daysSply}\n`;
-      }
+    summary += `\n${group.vendorName}\n`;
+    for (const item of criticalInGroup) {
+      summary += `  • ${item.prodNo} - ${item.description}\n`;
+      summary += `    Avail: ${item.avail ?? '?'} | On Order: ${item.onOrder ?? '-'} | Days: ${item.daysSply} ⚠️\n`;
     }
-    summary += '\n';
   }
 
-  if (reviewItems.length > 0) {
-    summary += `\nITEMS NEEDING REVIEW:\n`;
-    summary += `${'-'.repeat(40)}\n`;
-    for (const item of reviewItems.slice(0, 10)) {
-      summary += `  ${item.prodNo} - ${item.brand} ${item.description}\n`;
-      summary += `    Reason: ${item.parseNotes.join(', ') || 'Low confidence parse'}\n`;
-    }
-    if (reviewItems.length > 10) {
-      summary += `  ... and ${reviewItems.length - 10} more\n`;
+  // Confirmed arrivals (next 10 non-urgent POs)
+  const confirmedPOs = purchaseOrders
+    .filter(po => !po.isUrgent && po.daysUntilDue >= 0)
+    .sort((a, b) => a.daysUntilDue - b.daysUntilDue)
+    .slice(0, 10);
+
+  if (confirmedPOs.length > 0) {
+    summary += `\n${'='.repeat(60)}\n`;
+    summary += `CONFIRMED ARRIVALS (next 10)\n`;
+    summary += `${'-'.repeat(60)}\n`;
+    for (const po of confirmedPOs) {
+      summary += `  ${po.dueDate}: PO# ${po.poNumber} - ${po.vendorName} (${po.totalCases.toLocaleString()} cases)\n`;
     }
   }
 
