@@ -224,13 +224,20 @@ function parseTail(tokens: string[]): TailParseResult {
   // The structure going right-to-left after costs is: Sply Ordr Avail Avg Curr Wk1 Wk2 Wk3 Y-T-D
   // But Ordr can be blank (no order placed)
   //
-  // Strategy: Collect the remaining integers and determine which is which
-  // - Sply is typically a small number (days of supply) and can be a float
-  // - Ordr is quantity on order (integer, can be 0 or missing)
-  // - Avail is available quantity (integer)
-  // - Avg is average weekly sales (integer)
+  // Column order in report (left to right): Y-T-D Wk3 Wk2 Wk1 Curr Avg Avail Ordr Sply LndCst MrkCst Slot IP
+  // When Ordr is blank, the token simply doesn't exist
+  //
+  // Key insight from analyzing the PDF:
+  // - Sply is typically small (1-50 range for days of supply)
+  // - Ordr when present is usually a larger quantity (6, 12, 18, 24, 36, 48, 72, 96, 108, 144, 180, etc.)
+  // - Avail is current inventory (varies widely)
+  // - Avg is weekly average sales (varies widely)
+  //
+  // Better strategy: Count integers from right after LndCst
+  // If we have pattern like: small_num big_num small_num small_num -> Curr Avg Avail Sply (no Ordr)
+  // If we have pattern like: small_num big_num small_num big_num small_num -> Curr Avg Avail Ordr Sply
 
-  // First, get Sply (can be integer or float)
+  // First, get Sply (can be integer or float, typically small - days of supply)
   if (idx >= 0) {
     const splyToken = tokens[idx];
     if (isFloat(splyToken) || isInteger(splyToken)) {
@@ -243,132 +250,78 @@ function parseTail(tokens: string[]): TailParseResult {
     }
   }
 
-  // Now collect remaining integers going backwards for: Ordr, Avail, Avg, Curr, Wk1, Wk2, Wk3
-  // We need exactly Ordr (or none), Avail, and Avg
-  // The key insight: after Sply, the next 2-3 integers are Ordr/Avail/Avg
-  // If there are only 2 integers before we hit non-integers or sales data starts, then Ordr is blank
-
+  // Now collect remaining integers going backwards
+  // These will be in order: [Y-T-D, Wk3, Wk2, Wk1, Curr, Avg, Avail, Ordr?] (leftmost to rightmost)
   const remainingIntegers: number[] = [];
-
-  // Collect consecutive integers (going backwards)
   while (idx >= 0 && isInteger(tokens[idx])) {
     remainingIntegers.unshift(Number.parseInt(tokens[idx], 10));
     idx--;
   }
 
-  // Now analyze what we have
-  // The pattern is: ... Y-T-D Wk3 Wk2 Wk1 Curr Avg Avail [Ordr] Sply LndCst MrkCst Slot IP
-  // We collected integers from right after Sply going left
-  // These could be: Ordr Avail Avg Curr Wk1 Wk2 Wk3 Y-T-D (all consecutive integers)
+  // The rightmost integers are closest to Sply
+  // Pattern with Ordr:    [...sales..., Avg, Avail, Ordr]
+  // Pattern without Ordr: [...sales..., Avg, Avail]
+  //
+  // To distinguish: Order quantities are typically larger numbers (multiples of buy quantities)
+  // Common order multiples: 6, 12, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96, 108, 120, 144, 180
+  // Avail (on-hand inventory) can be any number but often smaller than Ordr
+  //
+  // Better heuristic: Look at the rightmost value
+  // If it's a "typical order quantity" (divisible by 6, or >= 12 and divisible by 2),
+  // AND it's significantly larger than the value before it, it's likely Ordr
 
-  if (remainingIntegers.length >= 2) {
-    // We have at least Avail and Avg (reading right to left from after Sply means first is closest to Sply)
-    // Order of collection (since we unshift): [leftmost, ..., rightmost]
-    // So remainingIntegers[last] was closest to Sply
+  const len = remainingIntegers.length;
 
-    // The rightmost integers (closest to Sply) are: Ordr (optional), Avail, Avg
-    // Beyond that are: Curr, Wk1, Wk2, Wk3, Y-T-D
+  if (len >= 2) {
+    const v1 = remainingIntegers[len - 1]; // rightmost - could be Ordr or Avail
+    const v2 = remainingIntegers[len - 2]; // second from right - could be Avail or Avg
+    const v3 = len >= 3 ? remainingIntegers[len - 3] : null; // third from right - could be Avg or Curr
 
-    // Heuristic: If we have many integers, the last 3 or 2 are Ordr/Avail/Avg or Avail/Avg
-    // Typically Avg > Avail in many cases (average sales vs current stock)
-    // But this isn't reliable - we need to use column position
-
-    // Better approach: The columns are fixed width in the report
-    // But since we're parsing tokens, let's use the count of integers
+    // Heuristic to detect if v1 is Ordr:
+    // Order quantities are typically:
+    // 1. Multiples of common buy quantities (6, 12, 18, 24, etc.)
+    // 2. Usually larger than or similar to Avail when ordering
+    // 3. When v1 > v2 significantly, v1 is likely Ordr
     //
-    // If there are many sales history columns populated, we'll have more integers
-    // The rightmost 2-3 integers (closest to where Sply was) are our targets
+    // If v1 is NOT an order, then pattern is: Avg, Avail (v2=Avg, v1=Avail)
+    // If v1 IS an order, then pattern is: Avg, Avail, Ordr (v3=Avg, v2=Avail, v1=Ordr)
 
-    const len = remainingIntegers.length;
+    const isLikelyOrderQty = (n: number): boolean => {
+      // Common order quantities are divisible by 6 (cases often come in 6-packs, 12-packs, etc.)
+      // Also check for round numbers >= 12
+      if (n === 0) return false;
+      if (n % 6 === 0) return true;
+      if (n >= 12 && n % 12 === 0) return true;
+      if (n >= 18 && n % 18 === 0) return true;
+      if (n >= 24 && n % 2 === 0 && n >= 20) return true; // larger even numbers
+      return false;
+    };
 
-    // Take the rightmost 3 integers at most (Avg, Avail, Ordr going left to right)
-    // Remember: our array is [leftmost, ..., rightmost]
-    // So remainingIntegers[len-1] was closest to Sply (could be Ordr or Avail)
-    // remainingIntegers[len-2] is next (could be Avail or Avg)
-    // remainingIntegers[len-3] is next (could be Avg or part of sales)
+    // Check if v1 looks like an order quantity AND we have enough values
+    // AND v1 is larger than v2 (ordering more than what's on hand is common)
+    const v1IsLikelyOrder = len >= 3 && v3 !== null && isLikelyOrderQty(v1) && v1 > v2;
 
-    if (len >= 3) {
-      // We have at least 3 integers - assume pattern is: ..., Avg, Avail, Ordr
-      // (reading array from left to right, which is how values appear left to right in report)
-      // But our array was built by unshift, so [0] is leftmost in original line
-
-      // Let me reconsider:
-      // Original line order: ... Avg Avail Ordr Sply ...
-      // We read tokens right-to-left starting after Sply
-      // First token after Sply (going left) could be Ordr or Avail
-      // We unshift each one, so array order matches original line order
-
-      // Example: line has "49 19 96 1" for "Avg Avail Ordr Sply"
-      // After parsing Sply=1, idx points to 96
-      // Loop: 96 -> unshift -> [96], 19 -> unshift -> [19, 96], 49 -> unshift -> [49, 19, 96]
-      // So array is [49, 19, 96] which is [Avg, Avail, Ordr] - correct order!
-
-      // For line with no Ordr: "121 20" for "Avg Avail"
-      // After parsing Sply, idx points to 20
-      // Loop: 20 -> unshift -> [20], 121 -> unshift -> [121, 20]
-      // So array is [121, 20] which is [Avg, Avail] - correct!
-
-      // So the RIGHTMOST values in our array are closest to Sply
-      // [... sales ..., Avg, Avail, Ordr] or [... sales ..., Avg, Avail]
-
-      // Determine if we have Ordr or not
-      // Look at the 3 rightmost values: could be Avg/Avail/Ordr or Sales/Avg/Avail
-
-      // Use heuristic: If the 3rd-from-right is much larger than the others, it's likely Avg
-      // and we have Ordr. If 2nd-from-right is larger, we don't have Ordr.
-
-      const v1 = remainingIntegers[len - 1]; // rightmost (closest to Sply) - Ordr or Avail
-      const v2 = remainingIntegers[len - 2]; // second from right - Avail or Avg
-      const v3 = len >= 3 ? remainingIntegers[len - 3] : null; // third from right - Avg or Curr
-
-      // Typically Ordr quantities are similar in magnitude to Avail
-      // And Avg is often larger than both (weekly average sales)
-      // But this isn't always true...
-
-      // Alternative heuristic based on your PDF:
-      // Look at whether v1 seems like an order quantity
-      // Order quantities are often multiples of BuyMult (6, 12, 18, 24, 36, 48, etc.)
-      // But that's hard to know without context
-
-      // Better: Look at the value magnitudes
-      // If v3 > v2 and v3 > v1, then v3 is likely Avg, v2 is Avail, v1 is Ordr
-      // If v2 > v1 and (no v3 or v3 is sales), then v2 is Avg, v1 is Avail, no Ordr
-
-      // For now, use a simpler heuristic:
-      // If we have 3+ integers and the third-from-right (v3) is larger than the rightmost (v1),
-      // assume we have Avg=v3, Avail=v2, Ordr=v1
-      // Otherwise, assume Avg=v2, Avail=v1, no Ordr
-
-      // Determine if we have Ordr based on value patterns
-      // If v3 >= v2 (regardless of v1), then v3=Avg, v2=Avail, v1=Ordr
-      // This covers both cases: v2 >= v1 (normal) and v1 > v2 (large order qty)
-      if (v3 !== null && v3 >= v2) {
-        // v3=Avg, v2=Avail, v1=Ordr
-        avg = v3;
-        avail = v2;
-        onOrder = v1;
-        consumedCount += 3;
-      } else {
-        // Likely: v2=Avg, v1=Avail, no Ordr
-        avg = v2;
-        avail = v1;
-        consumedCount += 2;
-      }
-    } else if (len === 2) {
-      // Only 2 integers - must be Avg and Avail, no Ordr
-      avg = remainingIntegers[0];
-      avail = remainingIntegers[1];
+    if (v1IsLikelyOrder) {
+      // Pattern: v3=Avg, v2=Avail, v1=Ordr
+      avg = v3;
+      avail = v2;
+      onOrder = v1;
+      consumedCount += 3;
+    } else {
+      // Pattern: v2=Avg, v1=Avail, no Ordr
+      avg = v2;
+      avail = v1;
       onOrder = null;
       consumedCount += 2;
-    } else if (len === 1) {
-      // Only 1 integer - likely just Avail
-      avail = remainingIntegers[0];
-      avg = null;
-      onOrder = null;
-      consumedCount += 1;
-      notes.push('Only one integer found for Avail/Avg/Ordr');
-      confidence = 'low';
     }
+  } else if (len === 1) {
+    // Only 1 integer - likely just Avail (edge case)
+    avail = remainingIntegers[0];
+    avg = null;
+    onOrder = null;
+    consumedCount += 1;
+    notes.push('Only one integer found for Avail/Avg/Ordr');
+    confidence = 'low';
   } else {
     notes.push('No integers found for Avail/Avg/Ordr');
     confidence = 'low';
