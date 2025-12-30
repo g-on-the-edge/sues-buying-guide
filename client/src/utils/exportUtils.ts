@@ -87,13 +87,12 @@ function itemsToSheetData(items: ParsedItem[]): object[] {
     'Brand': item.brand,
     'Description': item.description,
     'Y-T-D': item.ytd ?? '',
+    'Avg': item.avg ?? '',
     'Avail': item.avail ?? '',
     'On Order': item.onOrder ?? '',
     'Days Sply': item.daysSply ?? '',
     'Lnd Cost': item.lndCst ?? '',
-    'Mrk Cost': item.mrkCst ?? '',
     'Slot': item.slot ?? '',
-    'IP': item.ip ?? '',
     'Confidence': item.confidence,
     'Notes': item.parseNotes.join('; '),
   }));
@@ -167,7 +166,7 @@ export function generateEmailSummary(items: ParsedItem[]): string {
     for (const item of criticalItems) {
       summary += `  ${item.prodNo} - ${item.brand} ${item.description}\n`;
       summary += `    Vendor: ${item.vendorName}\n`;
-      summary += `    Avail: ${item.avail ?? 'N/A'}, On Order: ${item.onOrder ?? 'N/A'}, Days: ${item.daysSply}\n\n`;
+      summary += `    Avg: ${item.avg ?? 'N/A'}, Avail: ${item.avail ?? 'N/A'}, On Order: ${item.onOrder ?? '-'}, Days: ${item.daysSply}\n\n`;
     }
   }
 
@@ -183,7 +182,7 @@ export function generateEmailSummary(items: ParsedItem[]): string {
       if (item.confidence === 'high' && item.daysSply !== null && item.daysSply <= 5) {
         const critical = item.daysSply <= 2 ? ' [CRITICAL]' : '';
         summary += `  ${item.prodNo} - ${item.brand} ${item.description}${critical}\n`;
-        summary += `    Avail: ${item.avail ?? 'N/A'}, On Order: ${item.onOrder ?? 'N/A'}, Days: ${item.daysSply}\n`;
+        summary += `    Avg: ${item.avg ?? 'N/A'}, Avail: ${item.avail ?? 'N/A'}, On Order: ${item.onOrder ?? '-'}, Days: ${item.daysSply}\n`;
       }
     }
     summary += '\n';

@@ -46,6 +46,7 @@ const ItemRow: React.FC<ItemRowProps> = ({ item }) => {
         <td className="col-brand">{item.brand}</td>
         <td className="col-description">{item.description}</td>
         <td className="col-size">{item.size}</td>
+        <td className="col-number">{formatNumber(item.avg)}</td>
         <td className="col-number">{formatNumber(item.avail)}</td>
         <td className="col-number">{formatNumber(item.onOrder)}</td>
         <td className="col-days">
@@ -58,9 +59,7 @@ const ItemRow: React.FC<ItemRowProps> = ({ item }) => {
           )}
         </td>
         <td className="col-currency">{formatCurrency(item.lndCst)}</td>
-        <td className="col-currency">{formatCurrency(item.mrkCst)}</td>
         <td className="col-slot">{item.slot || '-'}</td>
-        <td className="col-ip">{item.ip !== null ? item.ip.toFixed(1) : '-'}</td>
         <td className="col-confidence">
           {item.confidence === 'low' ? (
             <button
@@ -77,7 +76,7 @@ const ItemRow: React.FC<ItemRowProps> = ({ item }) => {
       </tr>
       {showNotes && item.parseNotes.length > 0 && (
         <tr className="row-notes">
-          <td colSpan={12}>
+          <td colSpan={11}>
             <div className="notes-content">
               <strong>Parse Notes:</strong>
               <ul>
@@ -139,13 +138,12 @@ export const VendorGroup: React.FC<VendorGroupProps> = ({ group, showReviewBadge
                 <th className="col-brand">Brand</th>
                 <th className="col-description">Description</th>
                 <th className="col-size">Size</th>
+                <th className="col-number">Avg</th>
                 <th className="col-number">Avail</th>
                 <th className="col-number">On Order</th>
                 <th className="col-days">Days Sply</th>
                 <th className="col-currency">Lnd Cost</th>
-                <th className="col-currency">Mrk Cost</th>
                 <th className="col-slot">Slot</th>
-                <th className="col-ip">IP</th>
                 <th className="col-confidence">Status</th>
               </tr>
             </thead>

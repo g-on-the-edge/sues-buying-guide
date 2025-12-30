@@ -15,6 +15,7 @@ interface ParsedItem {
   brand: string;
   description: string;
   ytd: number | null;
+  avg: number | null;
   avail: number | null;
   onOrder: number | null;
   daysSply: number | null;
@@ -56,6 +57,7 @@ interface TailParseResult {
   daysSply: number | null;
   onOrder: number | null;
   avail: number | null;
+  avg: number | null;
   confidence: 'high' | 'low';
   notes: string[];
   consumedCount: number;
@@ -157,16 +159,17 @@ function parseTail(tokens: string[]): TailParseResult {
   let daysSply: number | null = null;
   let onOrder: number | null = null;
   let avail: number | null = null;
+  let avg: number | null = null;
   let consumedCount = 0;
 
   if (tokens.length < 4) {
     notes.push('Too few tokens for tail parsing');
-    return { ip, slot, mrkCst, lndCst, daysSply, onOrder, avail, confidence: 'low', notes, consumedCount };
+    return { ip, slot, mrkCst, lndCst, daysSply, onOrder, avail, avg, confidence: 'low', notes, consumedCount };
   }
 
   let idx = tokens.length - 1;
 
-  // IP
+  // IP (rightmost - always a float like 2.1, 4.5, etc)
   const ipToken = tokens[idx];
   const ipCleaned = ipToken.replace(/-$/, '');
   if (isFloat(ipCleaned)) {
@@ -178,7 +181,7 @@ function parseTail(tokens: string[]): TailParseResult {
     confidence = 'low';
   }
 
-  // Slot
+  // Slot (second from right - alphanumeric code like DN4901, DRY, FREEZE)
   if (idx >= 0) {
     const slotToken = tokens[idx];
     if (isSlotCode(slotToken) || /^[A-Z0-9]+$/i.test(slotToken)) {
@@ -191,7 +194,7 @@ function parseTail(tokens: string[]): TailParseResult {
     }
   }
 
-  // MrkCst
+  // MrkCst (market cost - float like 21.54)
   if (idx >= 0) {
     const mrkToken = tokens[idx];
     if (isFloat(mrkToken)) {
@@ -204,7 +207,7 @@ function parseTail(tokens: string[]): TailParseResult {
     }
   }
 
-  // LndCst
+  // LndCst (landed cost - float like 20.13)
   if (idx >= 0) {
     const lndToken = tokens[idx];
     if (isFloat(lndToken)) {
@@ -217,7 +220,17 @@ function parseTail(tokens: string[]): TailParseResult {
     }
   }
 
-  // Sply
+  // Now we need to parse: Sply, Ordr (optional), Avail, Avg
+  // The structure going right-to-left after costs is: Sply Ordr Avail Avg Curr Wk1 Wk2 Wk3 Y-T-D
+  // But Ordr can be blank (no order placed)
+  //
+  // Strategy: Collect the remaining integers and determine which is which
+  // - Sply is typically a small number (days of supply) and can be a float
+  // - Ordr is quantity on order (integer, can be 0 or missing)
+  // - Avail is available quantity (integer)
+  // - Avg is average weekly sales (integer)
+
+  // First, get Sply (can be integer or float)
   if (idx >= 0) {
     const splyToken = tokens[idx];
     if (isFloat(splyToken) || isInteger(splyToken)) {
@@ -230,33 +243,138 @@ function parseTail(tokens: string[]): TailParseResult {
     }
   }
 
-  // Ordr
-  if (idx >= 0) {
-    const ordrToken = tokens[idx];
-    if (isInteger(ordrToken)) {
-      onOrder = parseInt(ordrToken, 10);
-      consumedCount++;
-      idx--;
-    } else {
-      notes.push(`Expected Ordr as integer, got: ${ordrToken}`);
-      confidence = 'low';
-    }
+  // Now collect remaining integers going backwards for: Ordr, Avail, Avg, Curr, Wk1, Wk2, Wk3
+  // We need exactly Ordr (or none), Avail, and Avg
+  // The key insight: after Sply, the next 2-3 integers are Ordr/Avail/Avg
+  // If there are only 2 integers before we hit non-integers or sales data starts, then Ordr is blank
+
+  const remainingIntegers: number[] = [];
+
+  // Collect consecutive integers (going backwards)
+  while (idx >= 0 && isInteger(tokens[idx])) {
+    remainingIntegers.unshift(Number.parseInt(tokens[idx], 10));
+    idx--;
   }
 
-  // Avail
-  if (idx >= 0) {
-    const availToken = tokens[idx];
-    if (isInteger(availToken)) {
-      avail = parseInt(availToken, 10);
-      consumedCount++;
-      idx--;
-    } else {
-      notes.push(`Expected Avail as integer, got: ${availToken}`);
+  // Now analyze what we have
+  // The pattern is: ... Y-T-D Wk3 Wk2 Wk1 Curr Avg Avail [Ordr] Sply LndCst MrkCst Slot IP
+  // We collected integers from right after Sply going left
+  // These could be: Ordr Avail Avg Curr Wk1 Wk2 Wk3 Y-T-D (all consecutive integers)
+
+  if (remainingIntegers.length >= 2) {
+    // We have at least Avail and Avg (reading right to left from after Sply means first is closest to Sply)
+    // Order of collection (since we unshift): [leftmost, ..., rightmost]
+    // So remainingIntegers[last] was closest to Sply
+
+    // The rightmost integers (closest to Sply) are: Ordr (optional), Avail, Avg
+    // Beyond that are: Curr, Wk1, Wk2, Wk3, Y-T-D
+
+    // Heuristic: If we have many integers, the last 3 or 2 are Ordr/Avail/Avg or Avail/Avg
+    // Typically Avg > Avail in many cases (average sales vs current stock)
+    // But this isn't reliable - we need to use column position
+
+    // Better approach: The columns are fixed width in the report
+    // But since we're parsing tokens, let's use the count of integers
+    //
+    // If there are many sales history columns populated, we'll have more integers
+    // The rightmost 2-3 integers (closest to where Sply was) are our targets
+
+    const len = remainingIntegers.length;
+
+    // Take the rightmost 3 integers at most (Avg, Avail, Ordr going left to right)
+    // Remember: our array is [leftmost, ..., rightmost]
+    // So remainingIntegers[len-1] was closest to Sply (could be Ordr or Avail)
+    // remainingIntegers[len-2] is next (could be Avail or Avg)
+    // remainingIntegers[len-3] is next (could be Avg or part of sales)
+
+    if (len >= 3) {
+      // We have at least 3 integers - assume pattern is: ..., Avg, Avail, Ordr
+      // (reading array from left to right, which is how values appear left to right in report)
+      // But our array was built by unshift, so [0] is leftmost in original line
+
+      // Let me reconsider:
+      // Original line order: ... Avg Avail Ordr Sply ...
+      // We read tokens right-to-left starting after Sply
+      // First token after Sply (going left) could be Ordr or Avail
+      // We unshift each one, so array order matches original line order
+
+      // Example: line has "49 19 96 1" for "Avg Avail Ordr Sply"
+      // After parsing Sply=1, idx points to 96
+      // Loop: 96 -> unshift -> [96], 19 -> unshift -> [19, 96], 49 -> unshift -> [49, 19, 96]
+      // So array is [49, 19, 96] which is [Avg, Avail, Ordr] - correct order!
+
+      // For line with no Ordr: "121 20" for "Avg Avail"
+      // After parsing Sply, idx points to 20
+      // Loop: 20 -> unshift -> [20], 121 -> unshift -> [121, 20]
+      // So array is [121, 20] which is [Avg, Avail] - correct!
+
+      // So the RIGHTMOST values in our array are closest to Sply
+      // [... sales ..., Avg, Avail, Ordr] or [... sales ..., Avg, Avail]
+
+      // Determine if we have Ordr or not
+      // Look at the 3 rightmost values: could be Avg/Avail/Ordr or Sales/Avg/Avail
+
+      // Use heuristic: If the 3rd-from-right is much larger than the others, it's likely Avg
+      // and we have Ordr. If 2nd-from-right is larger, we don't have Ordr.
+
+      const v1 = remainingIntegers[len - 1]; // rightmost (closest to Sply) - Ordr or Avail
+      const v2 = remainingIntegers[len - 2]; // second from right - Avail or Avg
+      const v3 = len >= 3 ? remainingIntegers[len - 3] : null; // third from right - Avg or Curr
+
+      // Typically Ordr quantities are similar in magnitude to Avail
+      // And Avg is often larger than both (weekly average sales)
+      // But this isn't always true...
+
+      // Alternative heuristic based on your PDF:
+      // Look at whether v1 seems like an order quantity
+      // Order quantities are often multiples of BuyMult (6, 12, 18, 24, 36, 48, etc.)
+      // But that's hard to know without context
+
+      // Better: Look at the value magnitudes
+      // If v3 > v2 and v3 > v1, then v3 is likely Avg, v2 is Avail, v1 is Ordr
+      // If v2 > v1 and (no v3 or v3 is sales), then v2 is Avg, v1 is Avail, no Ordr
+
+      // For now, use a simpler heuristic:
+      // If we have 3+ integers and the third-from-right (v3) is larger than the rightmost (v1),
+      // assume we have Avg=v3, Avail=v2, Ordr=v1
+      // Otherwise, assume Avg=v2, Avail=v1, no Ordr
+
+      // Determine if we have Ordr based on value patterns
+      // If v3 >= v2 (regardless of v1), then v3=Avg, v2=Avail, v1=Ordr
+      // This covers both cases: v2 >= v1 (normal) and v1 > v2 (large order qty)
+      if (v3 !== null && v3 >= v2) {
+        // v3=Avg, v2=Avail, v1=Ordr
+        avg = v3;
+        avail = v2;
+        onOrder = v1;
+        consumedCount += 3;
+      } else {
+        // Likely: v2=Avg, v1=Avail, no Ordr
+        avg = v2;
+        avail = v1;
+        consumedCount += 2;
+      }
+    } else if (len === 2) {
+      // Only 2 integers - must be Avg and Avail, no Ordr
+      avg = remainingIntegers[0];
+      avail = remainingIntegers[1];
+      onOrder = null;
+      consumedCount += 2;
+    } else if (len === 1) {
+      // Only 1 integer - likely just Avail
+      avail = remainingIntegers[0];
+      avg = null;
+      onOrder = null;
+      consumedCount += 1;
+      notes.push('Only one integer found for Avail/Avg/Ordr');
       confidence = 'low';
     }
+  } else {
+    notes.push('No integers found for Avail/Avg/Ordr');
+    confidence = 'low';
   }
 
-  return { ip, slot, mrkCst, lndCst, daysSply, onOrder, avail, confidence, notes, consumedCount };
+  return { ip, slot, mrkCst, lndCst, daysSply, onOrder, avail, avg, confidence, notes, consumedCount };
 }
 
 function parseFront(tokens: string[]): FrontParseResult {
@@ -371,6 +489,7 @@ function parseItemLine(line: string, vendor: CurrentVendor): ParsedItem {
     brand: front.brand,
     description: front.description,
     ytd: front.ytd,
+    avg: tail.avg,
     avail: tail.avail,
     onOrder: tail.onOrder,
     daysSply: tail.daysSply,

@@ -12,6 +12,7 @@ export interface ParsedItem {
   brand: string;
   description: string;
   ytd: number | null;
+  avg: number | null;
   avail: number | null;
   onOrder: number | null;
   daysSply: number | null;
