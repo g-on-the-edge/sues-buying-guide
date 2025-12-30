@@ -259,49 +259,27 @@ function parseTail(tokens: string[]): TailParseResult {
   }
 
   // The rightmost integers are closest to Sply
-  // Pattern with Ordr:    [...sales..., Avg, Avail, Ordr]
-  // Pattern without Ordr: [...sales..., Avg, Avail]
+  // Column order (right to left from Sply): Ordr, Avail, Avg, Curr, Wk1, Wk2, Wk3, Y-T-D
+  // When Ordr is blank, the token doesn't exist, so we get: Avail, Avg, Curr, ...
   //
-  // To distinguish: Order quantities are typically larger numbers (multiples of buy quantities)
-  // Common order multiples: 6, 12, 18, 24, 30, 36, 42, 48, 60, 72, 84, 96, 108, 120, 144, 180
-  // Avail (on-hand inventory) can be any number but often smaller than Ordr
+  // Heuristic to detect if there's an order:
+  // - Order quantities are typically LARGER than available inventory (you order to restock)
+  // - If rightmost > 2nd from right, likely has an order
+  // - If rightmost < 2nd from right, likely NO order (rightmost is actually Avail)
   //
-  // Better heuristic: Look at the rightmost value
-  // If it's a "typical order quantity" (divisible by 6, or >= 12 and divisible by 2),
-  // AND it's significantly larger than the value before it, it's likely Ordr
+  // Examples from PDF:
+  // - 73266 WITH order: [..., 49, 19, 96] → 96 > 19, so Avg=49, Avail=19, Ordr=96
+  // - 26228 NO order:   [..., 42, 12]     → 12 < 42, so Avg=42, Avail=12, Ordr=null
 
   const len = remainingIntegers.length;
 
-  if (len >= 2) {
-    const v1 = remainingIntegers[len - 1]; // rightmost - could be Ordr or Avail
-    const v2 = remainingIntegers[len - 2]; // second from right - could be Avail or Avg
-    const v3 = len >= 3 ? remainingIntegers[len - 3] : null; // third from right - could be Avg or Curr
+  if (len >= 3) {
+    const v1 = remainingIntegers[len - 1]; // rightmost - Ordr or Avail
+    const v2 = remainingIntegers[len - 2]; // 2nd from right - Avail or Avg
+    const v3 = remainingIntegers[len - 3]; // 3rd from right - Avg or Curr
 
-    // Heuristic to detect if v1 is Ordr:
-    // Order quantities are typically:
-    // 1. Multiples of common buy quantities (6, 12, 18, 24, etc.)
-    // 2. Usually larger than or similar to Avail when ordering
-    // 3. When v1 > v2 significantly, v1 is likely Ordr
-    //
-    // If v1 is NOT an order, then pattern is: Avg, Avail (v2=Avg, v1=Avail)
-    // If v1 IS an order, then pattern is: Avg, Avail, Ordr (v3=Avg, v2=Avail, v1=Ordr)
-
-    const isLikelyOrderQty = (n: number): boolean => {
-      // Common order quantities are divisible by 6 (cases often come in 6-packs, 12-packs, etc.)
-      // Also check for round numbers >= 12
-      if (n === 0) return false;
-      if (n % 6 === 0) return true;
-      if (n >= 12 && n % 12 === 0) return true;
-      if (n >= 18 && n % 18 === 0) return true;
-      if (n >= 24 && n % 2 === 0 && n >= 20) return true; // larger even numbers
-      return false;
-    };
-
-    // Check if v1 looks like an order quantity AND we have enough values
-    // AND v1 is larger than v2 (ordering more than what's on hand is common)
-    const v1IsLikelyOrder = len >= 3 && v3 !== null && isLikelyOrderQty(v1) && v1 > v2;
-
-    if (v1IsLikelyOrder) {
+    // If rightmost > 2nd from right, assume there's an order
+    if (v1 > v2) {
       // Pattern: v3=Avg, v2=Avail, v1=Ordr
       avg = v3;
       avail = v2;
@@ -314,6 +292,12 @@ function parseTail(tokens: string[]): TailParseResult {
       onOrder = null;
       consumedCount += 2;
     }
+  } else if (len === 2) {
+    // Only 2 integers - treat as Avg, Avail with no Ordr
+    avg = remainingIntegers[0];
+    avail = remainingIntegers[1];
+    onOrder = null;
+    consumedCount += 2;
   } else if (len === 1) {
     // Only 1 integer - likely just Avail (edge case)
     avail = remainingIntegers[0];
