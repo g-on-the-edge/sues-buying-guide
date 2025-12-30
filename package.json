@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Inventory Order Report analyzer for identifying low-supply items",
   "engines": {
-    "node": "18.x"
+    "node": "20.x"
   },
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
