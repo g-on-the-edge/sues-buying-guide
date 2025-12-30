@@ -155,6 +155,7 @@ function AppContent() {
 
             <Dashboard
               stats={data.stats}
+              poStats={data.poStats}
               activeTab={activeTab}
               onTabChange={setActiveTab}
             />

@@ -1,13 +1,14 @@
 import React from 'react';
-import { ParseStats, TabType } from '../types';
+import { ParseStats, POStats, TabType } from '../types';
 
 interface DashboardProps {
   stats: ParseStats;
+  poStats?: POStats;
   activeTab: TabType;
   onTabChange: (tab: TabType) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ stats, activeTab, onTabChange }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ stats, poStats, activeTab, onTabChange }) => {
   return (
     <div className="dashboard">
       <div className="stats-grid">
@@ -88,6 +89,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, activeTab, onTabCha
         >
           All Items ({stats.totalItems})
         </button>
+        {poStats && poStats.totalPOs > 0 && (
+          <button
+            type="button"
+            className={`tab pos ${activeTab === 'pos' ? 'active' : ''}`}
+            onClick={() => onTabChange('pos')}
+          >
+            Purchase Orders ({poStats.totalPOs})
+          </button>
+        )}
       </div>
     </div>
   );
