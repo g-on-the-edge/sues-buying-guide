@@ -1,15 +1,32 @@
 import React, { useState, useCallback } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { Login } from './components/Login';
 import { Upload } from './components/Upload';
 import { Dashboard } from './components/Dashboard';
 import { ItemTable } from './components/ItemTable';
 import { ExportButtons } from './components/ExportButtons';
 import { ParseResponse, TabType } from './types';
 
-function App() {
+function AppContent() {
+  const { user, loading, signOut } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ParseResponse | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>('attention');
+
+  // Show loading screen while checking auth
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="spinner"></div>
+      </div>
+    );
+  }
+
+  // Show login if not authenticated
+  if (!user) {
+    return <Login />;
+  }
 
   const handleUpload = useCallback(async (file: File) => {
     setIsLoading(true);
@@ -62,8 +79,14 @@ function App() {
       <header className="app-header">
         <h1>Sue's Buying Guide</h1>
         <p className="subtitle">Inventory Order Report Analyzer</p>
+        <div className="user-info">
+          <span>{user.email}</span>
+          <button type="button" className="btn-signout" onClick={signOut}>
+            Sign Out
+          </button>
+        </div>
         {data && (
-          <button className="btn btn-reset" onClick={handleReset}>
+          <button type="button" className="btn btn-reset" onClick={handleReset}>
             Upload New Report
           </button>
         )}
@@ -86,7 +109,7 @@ function App() {
             {error && (
               <div className="error-message">
                 <strong>Error:</strong> {error}
-                <button className="btn-dismiss" onClick={() => setError(null)}>×</button>
+                <button type="button" className="btn-dismiss" onClick={() => setError(null)}>×</button>
               </div>
             )}
           </>
@@ -129,6 +152,14 @@ function App() {
         </p>
       </footer>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 

@@ -13,7 +13,11 @@
     "test": "cd server && npm test",
     "install:all": "npm install && cd server && npm install && cd ../client && npm install"
   },
+  "dependencies": {
+    "pdf-parse": "^1.1.1"
+  },
   "devDependencies": {
+    "@vercel/node": "^3.0.0",
     "concurrently": "^8.2.2"
   }
 }
