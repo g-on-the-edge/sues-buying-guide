@@ -164,6 +164,13 @@ export async function parsePdf(buffer: Buffer): Promise<ParseResponse> {
   const reportDate = extractReportDate(extractedText) || new Date();
   const reportDateStr = reportDate.toISOString().split('T')[0];
 
+  // Debug: Log text sample to understand what we're parsing
+  console.log('[PDF Parser] Extracted text length:', extractedText.length);
+  console.log('[PDF Parser] Report date:', reportDateStr);
+  console.log('[PDF Parser] First 500 chars:', extractedText.substring(0, 500));
+  console.log('[PDF Parser] Contains "Open P.O.":', extractedText.includes('Open P.O.'));
+  console.log('[PDF Parser] Contains "P.O.":', extractedText.includes('P.O.'));
+
   // Parse the extracted text for items
   const { items, errors } = parseAllLines(extractedText);
 

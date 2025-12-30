@@ -67,10 +67,17 @@ function calculatePOUrgency(
 
 /**
  * Check if a line is a PO header
- * Example: "Open P.O. Summary for Vendor 00001740"
+ * Various formats:
+ * - "Open P.O. Summary for Vendor 00001740"
+ * - "Open P.O. Summary for Vendor"
+ * - Lines containing "P.O." followed by "Due" (column header)
  */
 export function isPOHeader(line: string): boolean {
-  return /Open P\.O\. Summary for Vendor/i.test(line);
+  // Check for explicit PO summary header
+  if (/Open P\.?O\.? Summary/i.test(line)) return true;
+  // Check for PO column header pattern
+  if (/P\.?O\.?\s+Due\s+Total/i.test(line)) return true;
+  return false;
 }
 
 /**
@@ -298,7 +305,49 @@ export function parseSpecialOrderLine(
 }
 
 /**
+ * Check if a line looks like a PO data line
+ * Pattern: 5-digit number, then date (MM/DD/YY), then a number (cases)
+ * Example: "60649 01/02/26 955 Conf:EDI Costs..."
+ */
+function isPODataLine(line: string): boolean {
+  const trimmed = line.trim();
+  // Must start with 5-digit PO number
+  if (!/^\d{5}\s/.test(trimmed)) return false;
+
+  const tokens = trimmed.split(/\s+/);
+  if (tokens.length < 4) return false;
+
+  // Second token should be a date (MM/DD/YY)
+  if (!/^\d{2}\/\d{2}\/\d{2}$/.test(tokens[1])) return false;
+
+  // Third token should be a number (cases)
+  if (!/^\d+$/.test(tokens[2])) return false;
+
+  // Fourth token usually starts with "Conf:" or similar status
+  // This helps distinguish PO lines from other 5-digit numbered items
+  const rest = tokens.slice(3).join(' ');
+  if (/^Conf:/i.test(rest) || /\bYes\b|\bNo\b/i.test(rest)) {
+    return true;
+  }
+
+  // Also check if line contains typical PO elements (dates and times)
+  const dateMatches = trimmed.match(/\d{2}\/\d{2}\/\d{2}/g);
+  const timeMatches = trimmed.match(/\d{2}:\d{2}/g);
+
+  // PO lines typically have multiple dates
+  if (dateMatches && dateMatches.length >= 2) return true;
+
+  // Or a date+time combo (appointment)
+  if (timeMatches && timeMatches.length > 0) return true;
+
+  return false;
+}
+
+/**
  * Parse all POs and Special Orders from extracted PDF text
+ *
+ * Strategy: Scan ALL lines for PO patterns, not just lines in a "PO section"
+ * PO lines are identified by their format: 5-digit PO#, date, cases, status
  */
 export function parseAllPOs(
   text: string,
@@ -308,10 +357,15 @@ export function parseAllPOs(
   const purchaseOrders: PurchaseOrder[] = [];
   const specialOrders: SpecialOrder[] = [];
   const errors: string[] = [];
+  const seenPONumbers = new Set<string>(); // Avoid duplicates
+
+  // Debug: Log text sample to see what we're working with
+  console.log('[PO Parser] Total lines:', lines.length);
+  console.log('[PO Parser] Scanning for PO lines...');
 
   let currentVendor: CurrentVendor | null = null;
-  let inPOSection = false;
   let inSpecialOrderSection = false;
+  let poLinesFound = 0;
 
   // Pattern to detect vendor lines
   const vendorPattern = /^Vendor:\s*(\d+)\s+(.+?)(?:\s*\*?\s*Broker:|$)/i;
@@ -321,34 +375,20 @@ export function parseAllPOs(
     const lineNum = i + 1;
 
     try {
-      // Check for vendor line
+      // Check for vendor line - always update current vendor
       const vendorMatch = line.match(vendorPattern);
       if (vendorMatch) {
         currentVendor = {
           id: vendorMatch[1].trim(),
           name: vendorMatch[2].replace(/\s*\*\s*$/, '').trim(),
         };
-        inPOSection = false;
-        inSpecialOrderSection = false;
-        continue;
-      }
-
-      // Check for PO section header
-      if (isPOHeader(line)) {
-        inPOSection = true;
         inSpecialOrderSection = false;
         continue;
       }
 
       // Check for Special Order section header
       if (isSpecialOrderHeader(line)) {
-        inPOSection = false;
         inSpecialOrderSection = true;
-        continue;
-      }
-
-      // Skip column headers
-      if (isPOColumnHeader(line)) {
         continue;
       }
 
@@ -357,26 +397,29 @@ export function parseAllPOs(
         continue;
       }
 
-      // Check if we've exited the sections (hit a new vendor or other content)
-      if (inPOSection || inSpecialOrderSection) {
-        // Various patterns that indicate end of PO/SO sections
+      // Exit special order section on certain patterns
+      if (inSpecialOrderSection) {
         if (
           /^Vnd\s+\d+\s+SubTot/i.test(line) ||
           /^Cases\s*:/i.test(line) ||
           /^Prod#\s+Unt/i.test(line) ||
           /^\*\s*\*\s*\*\s*\*\s*\*/i.test(line)
         ) {
-          inPOSection = false;
           inSpecialOrderSection = false;
-          continue;
         }
       }
 
-      // Parse PO lines
-      if (inPOSection && currentVendor && startsWithPONumber(line)) {
+      // ALWAYS try to detect PO lines (they can appear anywhere after a vendor header)
+      if (currentVendor && isPODataLine(line)) {
         const po = parsePOLine(line, currentVendor, reportDate);
-        if (po) {
+        if (po && !seenPONumbers.has(po.poNumber)) {
+          seenPONumbers.add(po.poNumber);
           purchaseOrders.push(po);
+          poLinesFound++;
+
+          if (poLinesFound <= 5) {
+            console.log('[PO Parser] Found PO:', po.poNumber, 'vendor:', po.vendorName.substring(0, 20), 'due:', po.dueDate, 'edi:', po.edi, 'appt:', po.appointment ? 'Yes' : 'No');
+          }
         }
         continue;
       }
@@ -393,6 +436,16 @@ export function parseAllPOs(
       const message = err instanceof Error ? err.message : String(err);
       errors.push(`Line ${lineNum}: PO parse error - ${message}`);
     }
+  }
+
+  console.log('[PO Parser] Result: Found', purchaseOrders.length, 'POs,', specialOrders.length, 'Special Orders');
+
+  // Log urgent PO summary
+  const urgentPOs = purchaseOrders.filter(po => po.isUrgent);
+  if (urgentPOs.length > 0) {
+    console.log('[PO Parser] URGENT POs:', urgentPOs.length, 'requiring attention');
+    const urgentCases = urgentPOs.reduce((sum, po) => sum + po.totalCases, 0);
+    console.log('[PO Parser] Urgent cases at risk:', urgentCases);
   }
 
   return { purchaseOrders, specialOrders, errors };
