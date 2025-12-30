@@ -44,9 +44,61 @@ interface ParseStats {
   vendorCount: number;
 }
 
+interface PurchaseOrder {
+  poNumber: string;
+  vendorId: string;
+  vendorName: string;
+  dueDate: string;
+  totalCases: number;
+  status: string;
+  edi: boolean | null;
+  appointment: string | null;
+  pickUp: string | null;
+  entered: string | null;
+  daysUntilDue: number;
+  isUrgent: boolean;
+  urgentReasons: string[];
+}
+
+interface SpecialOrder {
+  prodNo: string;
+  description: string;
+  custNo: string;
+  customerName: string;
+  dateEntered: string;
+  dateDoq: string | null;
+  dateDue: string | null;
+  poNumber: string | null;
+  qtyOrdered: number;
+  onHand: number;
+  status: 'Ready' | '*DOQ*' | 'Order';
+  vendorId: string;
+  vendorName: string;
+}
+
+interface POStats {
+  totalPOs: number;
+  totalCases: number;
+  vendorsWithPOs: number;
+  thisWeekArrivals: number;
+  specialOrderCount: number;
+  readyCount: number;
+  doqCount: number;
+  pendingCount: number;
+  urgentPOCount: number;
+  urgentCases: number;
+  missingEDICount: number;
+  missingAppointmentCount: number;
+  overduePOCount: number;
+}
+
 interface ParseResponse {
   items: ParsedItem[];
+  purchaseOrders: PurchaseOrder[];
+  specialOrders: SpecialOrder[];
   stats: ParseStats;
+  poStats: POStats;
+  reportDate: string | null;
   parseErrors: string[];
 }
 
@@ -538,6 +590,272 @@ function parseAllLines(text: string): { items: ParsedItem[]; errors: string[] } 
 }
 
 // ============================================================================
+// PO Parser
+// ============================================================================
+
+const URGENT_WINDOW_DAYS = 5;
+
+function parseDate(dateStr: string): Date | null {
+  const match = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+  if (!match) return null;
+  const [, month, day, year] = match;
+  const fullYear = parseInt(year, 10) + 2000;
+  return new Date(fullYear, parseInt(month, 10) - 1, parseInt(day, 10));
+}
+
+function extractReportDate(text: string): Date | null {
+  const match = text.match(/RUN DATE[:\s]*(\d{2}\/\d{2}\/\d{2})/i);
+  if (!match) return null;
+  return parseDate(match[1]);
+}
+
+function calculateDaysUntilDue(dueDate: string, reportDate: Date): number {
+  const due = parseDate(dueDate);
+  if (!due) return 0;
+  const diffTime = due.getTime() - reportDate.getTime();
+  return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+}
+
+function isPODataLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!/^\d{5}\s/.test(trimmed)) return false;
+  const tokens = trimmed.split(/\s+/);
+  if (tokens.length < 4) return false;
+  if (!/^\d{5}$/.test(tokens[0])) return false;
+  if (!/^\d{2}\/\d{2}\/\d{2}$/.test(tokens[1])) return false;
+  if (!/^\d{1,5}$/.test(tokens[2])) return false;
+  if (/^Conf:/i.test(tokens[3])) return true;
+  const rest = tokens.slice(3).join(' ');
+  if (/Conf:/i.test(rest)) return true;
+  const dateMatches = trimmed.match(/\d{2}\/\d{2}\/\d{2}/g);
+  const timeMatches = trimmed.match(/\d{2}:\d{2}/g);
+  if (dateMatches && dateMatches.length >= 3) return true;
+  if (timeMatches && timeMatches.length > 0) return true;
+  return false;
+}
+
+function parsePOLine(line: string, vendor: CurrentVendor, reportDate: Date): PurchaseOrder | null {
+  const trimmed = line.trim();
+  const tokens = trimmed.split(/\s+/);
+  if (tokens.length < 4) return null;
+
+  const poNumber = tokens[0];
+  if (!/^\d{5}$/.test(poNumber)) return null;
+
+  const dueDate = tokens[1];
+  if (!/^\d{2}\/\d{2}\/\d{2}$/.test(dueDate)) return null;
+
+  const casesStr = tokens[2];
+  if (!/^\d+$/.test(casesStr)) return null;
+  const totalCases = parseInt(casesStr, 10);
+
+  const restOfLine = tokens.slice(3).join(' ');
+  let status = '';
+  const statusMatch = restOfLine.match(/^(Conf:[^\s]+|Pending|Received)/);
+  if (statusMatch) {
+    status = statusMatch[1];
+  } else {
+    status = tokens[3] || '';
+  }
+
+  // EDI detection
+  let edi: boolean | null = null;
+  if (status.toLowerCase().includes('edi')) {
+    edi = true;
+  } else if (/\bYes\b/i.test(restOfLine)) {
+    edi = true;
+  } else if (/\bNo\b/i.test(restOfLine)) {
+    edi = false;
+  }
+  if (edi === null && /^Conf:/i.test(status) && !status.toLowerCase().includes('edi')) {
+    edi = false;
+  }
+
+  const dates = restOfLine.match(/\d{2}\/\d{2}\/\d{2}/g) || [];
+  const times = restOfLine.match(/\d{2}:\d{2}/g) || [];
+
+  let appointment: string | null = null;
+  if (dates.length > 0 && times.length > 0) {
+    appointment = `${dates[0]} ${times[0]}`;
+  }
+
+  let entered: string | null = null;
+  if (dates.length > 0) {
+    entered = dates[dates.length - 1];
+  }
+
+  const daysUntilDue = calculateDaysUntilDue(dueDate, reportDate);
+  const urgentReasons: string[] = [];
+  let isUrgent = false;
+
+  if (daysUntilDue <= URGENT_WINDOW_DAYS) {
+    if (!edi) {
+      urgentReasons.push('No EDI confirmation');
+      isUrgent = true;
+    }
+    if (!appointment) {
+      urgentReasons.push('No appointment');
+      isUrgent = true;
+    }
+  }
+
+  return {
+    poNumber,
+    vendorId: vendor.id,
+    vendorName: vendor.name,
+    dueDate,
+    totalCases,
+    status,
+    edi,
+    appointment,
+    pickUp: null,
+    entered,
+    daysUntilDue,
+    isUrgent,
+    urgentReasons,
+  };
+}
+
+function isSpecialOrderHeader(line: string): boolean {
+  return /Special Order summary for this vendor/i.test(line);
+}
+
+function parseSpecialOrderLine(line: string, vendor: CurrentVendor): SpecialOrder | null {
+  const trimmed = line.trim();
+  const tokens = trimmed.split(/\s+/);
+  if (tokens.length < 6) return null;
+  if (!/^[A-Z0-9]{2,8}$/i.test(tokens[0])) return null;
+
+  const prodNo = tokens[0];
+  const dates: string[] = trimmed.match(/\d{2}\/\d{2}\/\d{2}/g) || [];
+  if (dates.length === 0) return null;
+
+  const poMatch = trimmed.match(/\b(\d{5})\b/);
+  const poNumber = poMatch ? poMatch[1] : null;
+
+  let status: 'Ready' | '*DOQ*' | 'Order' = 'Order';
+  if (trimmed.includes('*DOQ*')) {
+    status = '*DOQ*';
+  } else if (/\bReady\b/i.test(trimmed)) {
+    status = 'Ready';
+  }
+
+  const descTokens: string[] = [];
+  for (let i = 1; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (/^\d{2}\/\d{2}\/\d{2}$/.test(token)) break;
+    if (/^\d{4}$/.test(token) && i > 2) break;
+    descTokens.push(token);
+  }
+
+  return {
+    prodNo,
+    description: descTokens.join(' '),
+    custNo: '',
+    customerName: '',
+    dateEntered: dates[0] || '',
+    dateDoq: dates.length > 1 ? dates[1] : null,
+    dateDue: dates.length > 2 ? dates[2] : null,
+    poNumber,
+    qtyOrdered: 0,
+    onHand: 0,
+    status,
+    vendorId: vendor.id,
+    vendorName: vendor.name,
+  };
+}
+
+function parseAllPOs(text: string, reportDate: Date): { purchaseOrders: PurchaseOrder[]; specialOrders: SpecialOrder[]; errors: string[] } {
+  const lines = text.split('\n');
+  const purchaseOrders: PurchaseOrder[] = [];
+  const specialOrders: SpecialOrder[] = [];
+  const errors: string[] = [];
+  const seenPONumbers = new Set<string>();
+
+  let currentVendor: CurrentVendor | null = null;
+  let inSpecialOrderSection = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    try {
+      const vendorMatch = line.match(VENDOR_PATTERN);
+      if (vendorMatch) {
+        currentVendor = {
+          id: vendorMatch[1].trim(),
+          name: vendorMatch[2].replace(/\s*\*\s*$/, '').trim(),
+        };
+        inSpecialOrderSection = false;
+        continue;
+      }
+
+      if (isSpecialOrderHeader(line)) {
+        inSpecialOrderSection = true;
+        continue;
+      }
+
+      if (!line.trim()) continue;
+
+      if (inSpecialOrderSection) {
+        if (/^Vnd\s+\d+\s+SubTot/i.test(line) || /^Cases\s*:/i.test(line) || /^Prod#\s+Unt/i.test(line)) {
+          inSpecialOrderSection = false;
+        }
+      }
+
+      if (currentVendor && isPODataLine(line)) {
+        const po = parsePOLine(line, currentVendor, reportDate);
+        if (po && !seenPONumbers.has(po.poNumber)) {
+          seenPONumbers.add(po.poNumber);
+          purchaseOrders.push(po);
+        }
+        continue;
+      }
+
+      if (inSpecialOrderSection && currentVendor) {
+        const so = parseSpecialOrderLine(line, currentVendor);
+        if (so) {
+          specialOrders.push(so);
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(`Line ${i + 1}: PO parse error - ${message}`);
+    }
+  }
+
+  return { purchaseOrders, specialOrders, errors };
+}
+
+function calculatePOStats(purchaseOrders: PurchaseOrder[], specialOrders: SpecialOrder[], reportDate: Date): POStats {
+  const thisWeekArrivals = purchaseOrders.filter(po => po.daysUntilDue >= 0 && po.daysUntilDue <= 7).length;
+  const vendorsWithPOs = new Set(purchaseOrders.map(po => po.vendorId)).size;
+  const totalCases = purchaseOrders.reduce((sum, po) => sum + po.totalCases, 0);
+  const urgentPOs = purchaseOrders.filter(po => po.isUrgent);
+  const urgentCases = urgentPOs.reduce((sum, po) => sum + po.totalCases, 0);
+  const missingEDICount = urgentPOs.filter(po => po.urgentReasons.includes('No EDI confirmation')).length;
+  const missingAppointmentCount = urgentPOs.filter(po => po.urgentReasons.includes('No appointment')).length;
+  const overduePOCount = purchaseOrders.filter(po => po.daysUntilDue < 0).length;
+  const readyCount = specialOrders.filter(so => so.status === 'Ready').length;
+  const doqCount = specialOrders.filter(so => so.status === '*DOQ*').length;
+  const pendingCount = specialOrders.filter(so => so.status === 'Order').length;
+
+  return {
+    totalPOs: purchaseOrders.length,
+    totalCases,
+    vendorsWithPOs,
+    thisWeekArrivals,
+    specialOrderCount: specialOrders.length,
+    readyCount,
+    doqCount,
+    pendingCount,
+    urgentPOCount: urgentPOs.length,
+    urgentCases,
+    missingEDICount,
+    missingAppointmentCount,
+    overduePOCount,
+  };
+}
+
+// ============================================================================
 // PDF Parser
 // ============================================================================
 
@@ -609,14 +927,28 @@ async function parsePdf(buffer: Buffer): Promise<ParseResponse> {
     throw new Error('PDF extraction produced insufficient or invalid content');
   }
 
+  // Extract report date
+  const reportDate = extractReportDate(extractedText) || new Date();
+  const reportDateStr = reportDate.toISOString().split('T')[0];
+
+  // Parse items
   const { items, errors } = parseAllLines(extractedText);
   parseErrors.push(...errors);
 
+  // Parse POs and Special Orders
+  const { purchaseOrders, specialOrders, errors: poErrors } = parseAllPOs(extractedText, reportDate);
+  parseErrors.push(...poErrors);
+
   const stats = calculateStats(items);
+  const poStats = calculatePOStats(purchaseOrders, specialOrders, reportDate);
 
   return {
     items,
+    purchaseOrders,
+    specialOrders,
     stats,
+    poStats,
+    reportDate: reportDateStr,
     parseErrors,
   };
 }
