@@ -363,6 +363,19 @@ export function parseAllPOs(
   console.log('[PO Parser] Total lines:', lines.length);
   console.log('[PO Parser] Scanning for PO lines...');
 
+  // DEBUG: Log any line that starts with 5 digits to see what we're missing
+  const potentialPOLines = lines.filter(l => /^\s*\d{5}\s/.test(l));
+  console.log('[PO Parser] Lines starting with 5-digit number:', potentialPOLines.length);
+  if (potentialPOLines.length > 0 && potentialPOLines.length <= 10) {
+    potentialPOLines.forEach((l, i) => {
+      console.log(`[PO Parser] Sample line ${i + 1}:`, l.trim().substring(0, 100));
+    });
+  } else if (potentialPOLines.length > 10) {
+    potentialPOLines.slice(0, 5).forEach((l, i) => {
+      console.log(`[PO Parser] Sample line ${i + 1}:`, l.trim().substring(0, 100));
+    });
+  }
+
   let currentVendor: CurrentVendor | null = null;
   let inSpecialOrderSection = false;
   let poLinesFound = 0;
