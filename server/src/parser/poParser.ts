@@ -145,16 +145,21 @@ export function parsePOLine(
     status = tokens[3] || '';
   }
 
-  // Check for EDI confirmation (look for "Yes" or "No" after status)
+  // Check for EDI confirmation
+  // EDI is confirmed if:
+  // 1. Status contains "EDI" (e.g., "Conf:EDI Costs")
+  // 2. Or there's an explicit "Yes" in the line
   let edi: boolean | null = null;
-  if (/\bYes\b/i.test(restOfLine)) {
+  if (status.toLowerCase().includes('edi')) {
+    edi = true;
+  } else if (/\bYes\b/i.test(restOfLine)) {
     edi = true;
   } else if (/\bNo\b/i.test(restOfLine)) {
     edi = false;
   }
-  // Also check if status contains "EDI"
-  if (status.toLowerCase().includes('edi')) {
-    edi = true;
+  // If status starts with "Conf:" but doesn't have "EDI", it's not EDI confirmed
+  if (edi === null && /^Conf:/i.test(status) && !status.toLowerCase().includes('edi')) {
+    edi = false;
   }
 
   // Extract dates from rest of line (MM/DD/YY format)
@@ -306,8 +311,9 @@ export function parseSpecialOrderLine(
 
 /**
  * Check if a line looks like a PO data line
- * Pattern: 5-digit number, then date (MM/DD/YY), then a number (cases)
- * Example: "60649 01/02/26 955 Conf:EDI Costs..."
+ * Pattern: 5-digit number, then date (MM/DD/YY), then a number (cases), then status starting with "Conf:"
+ * Example: " 60184 12/30/25 1020 Conf:Recpt/Costs. 01/06/26 11:00 12/29/25 12/16/25"
+ * Note: Lines are often indented with leading spaces
  */
 function isPODataLine(line: string): boolean {
   const trimmed = line.trim();
@@ -317,27 +323,34 @@ function isPODataLine(line: string): boolean {
   const tokens = trimmed.split(/\s+/);
   if (tokens.length < 4) return false;
 
+  // First token must be exactly 5 digits (PO number)
+  if (!/^\d{5}$/.test(tokens[0])) return false;
+
   // Second token should be a date (MM/DD/YY)
   if (!/^\d{2}\/\d{2}\/\d{2}$/.test(tokens[1])) return false;
 
-  // Third token should be a number (cases)
-  if (!/^\d+$/.test(tokens[2])) return false;
+  // Third token should be a number (cases) - can be 1 to 5 digits
+  if (!/^\d{1,5}$/.test(tokens[2])) return false;
 
-  // Fourth token usually starts with "Conf:" or similar status
-  // This helps distinguish PO lines from other 5-digit numbered items
-  const rest = tokens.slice(3).join(' ');
-  if (/^Conf:/i.test(rest) || /\bYes\b|\bNo\b/i.test(rest)) {
+  // Fourth token should start with "Conf:" - this is the key identifier
+  if (/^Conf:/i.test(tokens[3])) {
     return true;
   }
 
-  // Also check if line contains typical PO elements (dates and times)
+  // Also check rest of line for Conf: pattern (in case of different tokenization)
+  const rest = tokens.slice(3).join(' ');
+  if (/Conf:/i.test(rest)) {
+    return true;
+  }
+
+  // Fallback: check if line contains typical PO elements (multiple dates or times)
   const dateMatches = trimmed.match(/\d{2}\/\d{2}\/\d{2}/g);
   const timeMatches = trimmed.match(/\d{2}:\d{2}/g);
 
-  // PO lines typically have multiple dates
-  if (dateMatches && dateMatches.length >= 2) return true;
+  // PO lines typically have 3+ dates (due date, appointment date, entered date)
+  if (dateMatches && dateMatches.length >= 3) return true;
 
-  // Or a date+time combo (appointment)
+  // Or a time pattern (appointment time like 11:00)
   if (timeMatches && timeMatches.length > 0) return true;
 
   return false;
