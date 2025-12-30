@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { ParsedItem, TabType, VendorGroup as VendorGroupType } from '../types';
+import { useMemo, useState } from 'react';
+import { ParsedItem, TabType } from '../types';
 import { VendorGroup } from './VendorGroup';
 import {
   getAttentionItems,

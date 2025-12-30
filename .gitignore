@@ -28,3 +28,4 @@ uploads/
 # Cache
 .cache/
 node_modules
+.vercel
