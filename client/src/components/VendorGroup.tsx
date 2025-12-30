@@ -1,26 +1,58 @@
 import React, { useState } from 'react';
-import { VendorGroup as VendorGroupType, ParsedItem } from '../types';
+import { VendorGroup as VendorGroupType, ParsedItem, Confidence } from '../types';
 
 interface VendorGroupProps {
   group: VendorGroupType;
-  showReviewBadge?: boolean;
+  showConfidenceBadge?: boolean;
 }
 
 interface ItemRowProps {
   item: ParsedItem;
 }
 
+// Confidence badge component per spec
+const ConfidenceBadge: React.FC<{ confidence: Confidence; onClick?: () => void }> = ({ confidence, onClick }) => {
+  const styles: Record<Confidence, string> = {
+    high: 'confidence-badge confidence-high',
+    medium: 'confidence-badge confidence-medium',
+    low: 'confidence-badge confidence-low',
+  };
+
+  const labels: Record<Confidence, string> = {
+    high: 'HIGH',
+    medium: 'MED',
+    low: 'LOW',
+  };
+
+  if (onClick) {
+    return (
+      <button type="button" className={styles[confidence]} onClick={onClick}>
+        {labels[confidence]}
+      </button>
+    );
+  }
+
+  return <span className={styles[confidence]}>{labels[confidence]}</span>;
+};
+
 const ItemRow: React.FC<ItemRowProps> = ({ item }) => {
   const [showNotes, setShowNotes] = useState(false);
 
   const getRowClass = () => {
+    // LOW confidence = needs review (gray)
     if (item.confidence === 'low' || item.daysSply === null) {
       return 'row-review';
     }
-    if (item.daysSply <= 2) {
+    // MEDIUM confidence with low supply = watch (light orange)
+    if (item.confidence === 'medium' && item.daysSply !== null && item.daysSply <= 5) {
+      return 'row-watch';
+    }
+    // HIGH confidence with critical supply (red)
+    if (item.confidence === 'high' && item.daysSply !== null && item.daysSply <= 2) {
       return 'row-critical';
     }
-    if (item.daysSply <= 5) {
+    // HIGH confidence with attention supply (yellow)
+    if (item.confidence === 'high' && item.daysSply !== null && item.daysSply <= 5) {
       return 'row-attention';
     }
     return '';
@@ -61,20 +93,17 @@ const ItemRow: React.FC<ItemRowProps> = ({ item }) => {
         <td className="col-currency">{formatCurrency(item.lndCst)}</td>
         <td className="col-slot">{item.slot || '-'}</td>
         <td className="col-confidence">
-          {item.confidence === 'low' ? (
-            <button
-              className="btn-notes"
+          {item.confidence === 'low' || item.confidence === 'medium' ? (
+            <ConfidenceBadge
+              confidence={item.confidence}
               onClick={() => setShowNotes(!showNotes)}
-              title={item.parseNotes.join('\n')}
-            >
-              Review
-            </button>
+            />
           ) : (
-            <span className="confidence-high">OK</span>
+            <ConfidenceBadge confidence={item.confidence} />
           )}
         </td>
       </tr>
-      {showNotes && item.parseNotes.length > 0 && (
+      {showNotes && (item.parseNotes.length > 0 || item.confidence !== 'high') && (
         <tr className="row-notes">
           <td colSpan={11}>
             <div className="notes-content">
@@ -83,6 +112,7 @@ const ItemRow: React.FC<ItemRowProps> = ({ item }) => {
                 {item.parseNotes.map((note, i) => (
                   <li key={i}>{note}</li>
                 ))}
+                <li>Numeric columns found: {item.numericColumns}</li>
               </ul>
               <div className="raw-line">
                 <strong>Raw Line:</strong> <code>{item.rawLine}</code>
@@ -95,10 +125,10 @@ const ItemRow: React.FC<ItemRowProps> = ({ item }) => {
   );
 };
 
-export const VendorGroup: React.FC<VendorGroupProps> = ({ group, showReviewBadge }) => {
+export const VendorGroup: React.FC<VendorGroupProps> = ({ group, showConfidenceBadge }) => {
   const [isExpanded, setIsExpanded] = useState(true);
 
-  const hasIssues = group.criticalCount > 0 || group.reviewCount > 0;
+  const hasIssues = group.criticalCount > 0 || group.watchCount > 0 || group.reviewCount > 0;
 
   return (
     <div className={`vendor-group ${hasIssues ? 'has-issues' : ''}`}>
@@ -122,7 +152,10 @@ export const VendorGroup: React.FC<VendorGroupProps> = ({ group, showReviewBadge
               {group.attentionCount - group.criticalCount} attention
             </span>
           )}
-          {showReviewBadge && group.reviewCount > 0 && (
+          {showConfidenceBadge && group.watchCount > 0 && (
+            <span className="badge badge-watch">{group.watchCount} watch</span>
+          )}
+          {showConfidenceBadge && group.reviewCount > 0 && (
             <span className="badge badge-review">{group.reviewCount} review</span>
           )}
           <span className="badge badge-total">{group.items.length} items</span>

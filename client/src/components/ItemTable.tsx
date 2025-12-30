@@ -4,8 +4,9 @@ import { VendorGroup } from './VendorGroup';
 import {
   getAttentionItems,
   getCriticalItems,
+  getWatchListItems,
   getNeedsReviewItems,
-  getHighConfidenceItems,
+  getAllItems,
   groupByVendor,
 } from '../utils/exportUtils';
 
@@ -28,12 +29,15 @@ export const ItemTable: React.FC<ItemTableProps> = ({ items, activeTab }) => {
       case 'critical':
         result = getCriticalItems(items);
         break;
+      case 'watch':
+        result = getWatchListItems(items);
+        break;
       case 'review':
         result = getNeedsReviewItems(items);
         break;
       case 'all':
       default:
-        result = getHighConfidenceItems(items);
+        result = getAllItems(items);
     }
 
     // Apply search filter
@@ -58,13 +62,15 @@ export const ItemTable: React.FC<ItemTableProps> = ({ items, activeTab }) => {
   const getTabDescription = () => {
     switch (activeTab) {
       case 'attention':
-        return 'Items with 5 days or less supply';
+        return 'HIGH confidence items with 5 days or less supply';
       case 'critical':
-        return 'Items with 2 days or less supply - IMMEDIATE ACTION REQUIRED';
+        return 'HIGH confidence items with 2 days or less supply - IMMEDIATE ACTION REQUIRED';
+      case 'watch':
+        return 'MEDIUM confidence items with 5 days or less supply - verify data before acting';
       case 'review':
-        return 'Items that could not be parsed with high confidence - manual review recommended';
+        return 'LOW confidence items - manual review recommended';
       case 'all':
-        return 'All items parsed with high confidence';
+        return 'All parsed items';
     }
   };
 
@@ -112,7 +118,7 @@ export const ItemTable: React.FC<ItemTableProps> = ({ items, activeTab }) => {
             <VendorGroup
               key={group.vendorId}
               group={group}
-              showReviewBadge={activeTab === 'review' || activeTab === 'all'}
+              showConfidenceBadge={activeTab === 'watch' || activeTab === 'review' || activeTab === 'all'}
             />
           ))}
         </div>

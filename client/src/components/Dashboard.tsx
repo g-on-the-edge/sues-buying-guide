@@ -26,7 +26,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, activeTab, onTabCha
         >
           <div className="stat-value">{stats.attentionCount}</div>
           <div className="stat-label">Attention</div>
-          <div className="stat-detail">5 days or less</div>
+          <div className="stat-detail">HIGH conf, ≤5 days</div>
         </div>
 
         <div
@@ -35,7 +35,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, activeTab, onTabCha
         >
           <div className="stat-value">{stats.criticalCount}</div>
           <div className="stat-label">Critical</div>
-          <div className="stat-detail">2 days or less</div>
+          <div className="stat-detail">HIGH conf, ≤2 days</div>
+        </div>
+
+        <div
+          className={`stat-card watch ${activeTab === 'watch' ? 'active' : ''}`}
+          onClick={() => onTabChange('watch')}
+        >
+          <div className="stat-value">{stats.attentionMediumCount}</div>
+          <div className="stat-label">Watch List</div>
+          <div className="stat-detail">MED conf, ≤5 days</div>
         </div>
 
         <div
@@ -44,7 +53,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, activeTab, onTabCha
         >
           <div className="stat-value">{stats.needsReviewCount}</div>
           <div className="stat-label">Needs Review</div>
-          <div className="stat-detail">Low confidence</div>
+          <div className="stat-detail">LOW confidence</div>
         </div>
       </div>
 
@@ -62,6 +71,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, activeTab, onTabCha
           Critical ({stats.criticalCount})
         </button>
         <button
+          className={`tab ${activeTab === 'watch' ? 'active' : ''}`}
+          onClick={() => onTabChange('watch')}
+        >
+          Watch List ({stats.attentionMediumCount})
+        </button>
+        <button
           className={`tab ${activeTab === 'review' ? 'active' : ''}`}
           onClick={() => onTabChange('review')}
         >
@@ -71,7 +86,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ stats, activeTab, onTabCha
           className={`tab ${activeTab === 'all' ? 'active' : ''}`}
           onClick={() => onTabChange('all')}
         >
-          All High-Confidence ({stats.highConfidenceCount})
+          All Items ({stats.totalItems})
         </button>
       </div>
     </div>

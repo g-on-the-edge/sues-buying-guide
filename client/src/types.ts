@@ -2,6 +2,8 @@
  * Shared types between client and server
  */
 
+export type Confidence = 'high' | 'medium' | 'low';
+
 export interface ParsedItem {
   vendorId: string;
   vendorName: string;
@@ -20,7 +22,8 @@ export interface ParsedItem {
   mrkCst: number | null;
   slot: string | null;
   ip: number | null;
-  confidence: 'high' | 'low';
+  confidence: Confidence;
+  numericColumns: number;  // For debugging - how many numeric columns were found
   rawLine: string;
   parseNotes: string[];
 }
@@ -28,10 +31,13 @@ export interface ParsedItem {
 export interface ParseStats {
   totalItems: number;
   highConfidenceCount: number;
+  mediumConfidenceCount: number;
   lowConfidenceCount: number;
-  attentionCount: number;
-  criticalCount: number;
+  attentionCount: number;        // HIGH confidence, Sply <= 5
+  attentionMediumCount: number;  // MEDIUM confidence, Sply <= 5 (Watch List)
+  criticalCount: number;         // HIGH confidence, Sply <= 2
   needsReviewCount: number;
+  specialOrderCount: number;
   vendorCount: number;
 }
 
@@ -41,7 +47,7 @@ export interface ParseResponse {
   parseErrors: string[];
 }
 
-export type TabType = 'attention' | 'critical' | 'review' | 'all';
+export type TabType = 'attention' | 'critical' | 'watch' | 'review' | 'all';
 
 export interface VendorGroup {
   vendorId: string;
@@ -49,5 +55,6 @@ export interface VendorGroup {
   items: ParsedItem[];
   criticalCount: number;
   attentionCount: number;
+  watchCount: number;  // MEDIUM confidence, Sply <= 5
   reviewCount: number;
 }

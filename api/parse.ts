@@ -5,6 +5,8 @@ import pdfParse from 'pdf-parse';
 // Types
 // ============================================================================
 
+type Confidence = 'high' | 'medium' | 'low';
+
 interface ParsedItem {
   vendorId: string;
   vendorName: string;
@@ -23,7 +25,8 @@ interface ParsedItem {
   mrkCst: number | null;
   slot: string | null;
   ip: number | null;
-  confidence: 'high' | 'low';
+  confidence: Confidence;
+  numericColumns: number;  // For debugging - how many numeric columns were found
   rawLine: string;
   parseNotes: string[];
 }
@@ -31,10 +34,13 @@ interface ParsedItem {
 interface ParseStats {
   totalItems: number;
   highConfidenceCount: number;
+  mediumConfidenceCount: number;
   lowConfidenceCount: number;
-  attentionCount: number;
-  criticalCount: number;
+  attentionCount: number;      // HIGH confidence, Sply <= 5
+  attentionMediumCount: number; // MEDIUM confidence, Sply <= 5 (Watch List)
+  criticalCount: number;        // HIGH confidence, Sply <= 2
   needsReviewCount: number;
+  specialOrderCount: number;
   vendorCount: number;
 }
 
@@ -58,7 +64,8 @@ interface TailParseResult {
   onOrder: number | null;
   avail: number | null;
   avg: number | null;
-  confidence: 'high' | 'low';
+  confidence: Confidence;
+  numericColumns: number;  // How many numeric columns were found before LndCst
   notes: string[];
   consumedCount: number;
 }
@@ -148,9 +155,9 @@ function isSlotCode(token: string): boolean {
   return /^[A-Z]{1,3}\d{3,5}$|^COOLER$|^FREEZE$|^DRY$/i.test(token);
 }
 
-function parseTail(tokens: string[]): TailParseResult {
+function parseTail(tokens: string[], isSpecialOrder: boolean): TailParseResult {
   const notes: string[] = [];
-  let confidence: 'high' | 'low' = 'high';
+  let confidence: Confidence = 'high';
 
   let ip: number | null = null;
   let slot: string | null = null;
@@ -161,13 +168,27 @@ function parseTail(tokens: string[]): TailParseResult {
   let avail: number | null = null;
   let avg: number | null = null;
   let consumedCount = 0;
+  let numericColumns = 0;
 
   if (tokens.length < 4) {
     notes.push('Too few tokens for tail parsing');
-    return { ip, slot, mrkCst, lndCst, daysSply, onOrder, avail, avg, confidence: 'low', notes, consumedCount };
+    return { ip, slot, mrkCst, lndCst, daysSply, onOrder, avail, avg, confidence: 'low', numericColumns: 0, notes, consumedCount };
   }
 
   let idx = tokens.length - 1;
+
+  // ============================================================================
+  // COLUMN-COUNTING APPROACH (per spec v2)
+  // Parse RIGHT-TO-LEFT: IP, Slot, MrkCst, LndCst are ALWAYS present
+  // Then count remaining numeric columns to determine confidence
+  //
+  // NEW CONFIDENCE THRESHOLDS (v2):
+  //   7+ numeric cols = HIGH confidence (lowered from 8)
+  //   5-6 numeric cols = MEDIUM confidence (new tier)
+  //   <5 cols = LOW confidence
+  //
+  // S/O items with 7+ columns NOW get HIGH confidence (was auto-LOW)
+  // ============================================================================
 
   // IP (rightmost - always a float like 2.1, 4.5, etc)
   const ipToken = tokens[idx];
@@ -220,98 +241,119 @@ function parseTail(tokens: string[]): TailParseResult {
     }
   }
 
-  // Now we need to parse: Sply, Ordr (optional), Avail, Avg
-  // The structure going right-to-left after costs is: Sply Ordr Avail Avg Curr Wk1 Wk2 Wk3 Y-T-D
-  // But Ordr can be blank (no order placed)
+  // ============================================================================
+  // Now count numeric columns BEFORE LndCst (going right-to-left)
+  // These are: Sply, Ordr?, Avail, Avg, Curr, Wk1, Wk2, Wk3, Y-T-D
   //
-  // Column order in report (left to right): Y-T-D Wk3 Wk2 Wk1 Curr Avg Avail Ordr Sply LndCst MrkCst Slot IP
-  // When Ordr is blank, the token simply doesn't exist
+  // Full column order (left-to-right):
+  //   Y-T-D Wk3 Wk2 Wk1 Curr Avg Avail Ordr Sply LndCst MrkCst Slot IP
   //
-  // Key insight from analyzing the PDF:
-  // - Sply is typically small (1-50 range for days of supply)
-  // - Ordr when present is usually a larger quantity (6, 12, 18, 24, 36, 48, 72, 96, 108, 144, 180, etc.)
-  // - Avail is current inventory (varies widely)
-  // - Avg is weekly average sales (varies widely)
-  //
-  // Better strategy: Count integers from right after LndCst
-  // If we have pattern like: small_num big_num small_num small_num -> Curr Avg Avail Sply (no Ordr)
-  // If we have pattern like: small_num big_num small_num big_num small_num -> Curr Avg Avail Ordr Sply
+  // Days Supply is ALWAYS the last numeric value before LndCst (verified 99% accurate)
+  // ============================================================================
 
-  // First, get Sply (can be integer or float, typically small - days of supply)
-  if (idx >= 0) {
-    const splyToken = tokens[idx];
-    if (isFloat(splyToken) || isInteger(splyToken)) {
-      daysSply = parseFloat(splyToken);
-      consumedCount++;
-      idx--;
+  // Collect ALL numeric tokens from current position going left
+  const numericTokens: string[] = [];
+  let tempIdx = idx;
+  while (tempIdx >= 0) {
+    const token = tokens[tempIdx];
+    if (isInteger(token) || isFloat(token)) {
+      numericTokens.unshift(token); // Add to front (we're going backwards)
+      tempIdx--;
     } else {
-      notes.push(`Expected DaysSply as number, got: ${splyToken}`);
-      confidence = 'low';
+      break; // Stop at first non-numeric token (likely the description)
     }
   }
 
-  // Now collect remaining integers going backwards
-  // These will be in order: [Y-T-D, Wk3, Wk2, Wk1, Curr, Avg, Avail, Ordr?] (leftmost to rightmost)
-  const remainingIntegers: number[] = [];
-  while (idx >= 0 && isInteger(tokens[idx])) {
-    remainingIntegers.unshift(Number.parseInt(tokens[idx], 10));
-    idx--;
+  const numCols = numericTokens.length;
+  numericColumns = numCols;
+
+  // ============================================================================
+  // CONFIDENCE CLASSIFICATION (per spec v2)
+  // 7+ columns = HIGH confidence
+  // 5-6 columns = MEDIUM confidence
+  // <5 columns = LOW confidence
+  // ============================================================================
+
+  // Days Supply is ALWAYS the rightmost numeric (index len-1) - verified 99% accurate
+  if (numCols >= 1) {
+    const splyToken = numericTokens[numCols - 1];
+    daysSply = parseFloat(splyToken);
+    consumedCount++;
   }
 
-  // The rightmost integers are closest to Sply
-  // Column order (right to left from Sply): Ordr, Avail, Avg, Curr, Wk1, Wk2, Wk3, Y-T-D
-  // When Ordr is blank, the token doesn't exist, so we get: Avail, Avg, Curr, ...
-  //
-  // Heuristic to detect if there's an order:
-  // - Order quantities are typically LARGER than available inventory (you order to restock)
-  // - If rightmost > 2nd from right, likely has an order
-  // - If rightmost < 2nd from right, likely NO order (rightmost is actually Avail)
-  //
-  // Examples from PDF:
-  // - 73266 WITH order: [..., 49, 19, 96] → 96 > 19, so Avg=49, Avail=19, Ordr=96
-  // - 26228 NO order:   [..., 42, 12]     → 12 < 42, so Avg=42, Avail=12, Ordr=null
+  if (numCols >= 7) {
+    // HIGH confidence - 7+ columns
+    const len = numericTokens.length;
 
-  const len = remainingIntegers.length;
+    if (numCols >= 9) {
+      // Full pattern WITH Ordr
+      // From right: Sply=[len-1], Ordr=[len-2], Avail=[len-3], Avg=[len-4]
+      const ordrToken = numericTokens[len - 2];
+      const availToken = numericTokens[len - 3];
+      const avgToken = numericTokens[len - 4];
 
-  if (len >= 3) {
-    const v1 = remainingIntegers[len - 1]; // rightmost - Ordr or Avail
-    const v2 = remainingIntegers[len - 2]; // 2nd from right - Avail or Avg
-    const v3 = remainingIntegers[len - 3]; // 3rd from right - Avg or Curr
-
-    // If rightmost > 2nd from right, assume there's an order
-    if (v1 > v2) {
-      // Pattern: v3=Avg, v2=Avail, v1=Ordr
-      avg = v3;
-      avail = v2;
-      onOrder = v1;
+      onOrder = parseInt(ordrToken, 10);
+      avail = parseInt(availToken, 10);
+      avg = parseInt(avgToken, 10);
       consumedCount += 3;
-    } else {
-      // Pattern: v2=Avg, v1=Avail, no Ordr
-      avg = v2;
-      avail = v1;
+    } else if (numCols >= 8) {
+      // 8 columns - NO Ordr
+      // From right: Sply=[len-1], Avail=[len-2], Avg=[len-3]
+      const availToken = numericTokens[len - 2];
+      const avgToken = numericTokens[len - 3];
+
       onOrder = null;
+      avail = parseInt(availToken, 10);
+      avg = parseInt(avgToken, 10);
       consumedCount += 2;
+    } else {
+      // 7 columns - try to get Avail
+      // From right: Sply=[len-1], Avail=[len-2]
+      const availToken = numericTokens[len - 2];
+      avail = parseInt(availToken, 10);
+      consumedCount++;
     }
-  } else if (len === 2) {
-    // Only 2 integers - treat as Avg, Avail with no Ordr
-    avg = remainingIntegers[0];
-    avail = remainingIntegers[1];
-    onOrder = null;
-    consumedCount += 2;
-  } else if (len === 1) {
-    // Only 1 integer - likely just Avail (edge case)
-    avail = remainingIntegers[0];
-    avg = null;
-    onOrder = null;
-    consumedCount += 1;
-    notes.push('Only one integer found for Avail/Avg/Ordr');
-    confidence = 'low';
+
+    // S/O items with 7+ columns NOW get HIGH confidence (changed from v1)
+    if (isSpecialOrder) {
+      notes.push('Special Order item with good data');
+    }
+
+    // Only override to low if we had tail parsing failures
+    if (confidence !== 'low') {
+      confidence = 'high';
+    }
+  } else if (numCols >= 5) {
+    // MEDIUM confidence - 5-6 columns (new tier in v2)
+    notes.push(`${numCols} numeric columns found - medium confidence`);
+
+    // Try to get Avail
+    if (numCols >= 2) {
+      avail = parseInt(numericTokens[numCols - 2], 10);
+      consumedCount++;
+    }
+
+    // Only set to medium if we didn't have tail parsing failures
+    if (confidence !== 'low') {
+      confidence = 'medium';
+    }
   } else {
-    notes.push('No integers found for Avail/Avg/Ordr');
+    // LOW confidence - <5 columns
+    notes.push(`Only ${numCols} numeric columns found (need 5+ for medium, 7+ for high)`);
     confidence = 'low';
+
+    // Still try to extract what we can
+    if (numCols >= 2) {
+      avail = parseInt(numericTokens[numCols - 2], 10);
+      consumedCount++;
+    }
+    if (numCols >= 3) {
+      avg = parseInt(numericTokens[numCols - 3], 10);
+      consumedCount++;
+    }
   }
 
-  return { ip, slot, mrkCst, lndCst, daysSply, onOrder, avail, avg, confidence, notes, consumedCount };
+  return { ip, slot, mrkCst, lndCst, daysSply, onOrder, avail, avg, confidence, numericColumns, notes, consumedCount };
 }
 
 function parseFront(tokens: string[]): FrontParseResult {
@@ -413,8 +455,10 @@ function parseItemLine(line: string, vendor: CurrentVendor): ParsedItem {
   const trimmed = line.trim();
   const tokens = trimmed.split(/\s+/);
 
-  const tail = parseTail(tokens);
+  // Parse front first to detect S/O (Special Order)
   const front = parseFront(tokens);
+  // Pass specialOrder flag to parseTail for confidence determination
+  const tail = parseTail(tokens, front.specialOrder);
 
   const item: ParsedItem = {
     vendorId: vendor.id,
@@ -435,6 +479,7 @@ function parseItemLine(line: string, vendor: CurrentVendor): ParsedItem {
     slot: tail.slot,
     ip: tail.ip,
     confidence: tail.confidence,
+    numericColumns: tail.numericColumns,
     rawLine: trimmed,
     parseNotes: tail.notes,
   };
@@ -515,29 +560,42 @@ function isValidExtraction(text: string): boolean {
 
 function calculateStats(items: ParsedItem[]): ParseStats {
   const highConfidence = items.filter(i => i.confidence === 'high');
+  const mediumConfidence = items.filter(i => i.confidence === 'medium');
   const lowConfidence = items.filter(i => i.confidence === 'low');
 
+  // HIGH confidence attention items (Sply <= 5)
   const attention = highConfidence.filter(
     i => i.daysSply !== null && i.daysSply <= 5
   );
 
+  // MEDIUM confidence attention items (Sply <= 5) - "Watch List"
+  const attentionMedium = mediumConfidence.filter(
+    i => i.daysSply !== null && i.daysSply <= 5
+  );
+
+  // Critical items (HIGH confidence, Sply <= 2)
   const critical = highConfidence.filter(
     i => i.daysSply !== null && i.daysSply <= 2
   );
 
+  // Needs Review = LOW confidence only (not medium)
   const needsReview = items.filter(
     i => i.confidence === 'low' || i.daysSply === null
   );
 
+  const specialOrders = items.filter(i => i.specialOrder);
   const uniqueVendors = new Set(items.map(i => i.vendorId));
 
   return {
     totalItems: items.length,
     highConfidenceCount: highConfidence.length,
+    mediumConfidenceCount: mediumConfidence.length,
     lowConfidenceCount: lowConfidence.length,
     attentionCount: attention.length,
+    attentionMediumCount: attentionMedium.length,
     criticalCount: critical.length,
     needsReviewCount: needsReview.length,
+    specialOrderCount: specialOrders.length,
     vendorCount: uniqueVendors.size,
   };
 }

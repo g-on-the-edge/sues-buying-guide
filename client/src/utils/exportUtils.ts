@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import { ParsedItem, VendorGroup } from '../types';
 
 /**
- * Filter items by attention level (daysSply <= 5)
+ * Filter items by attention level (HIGH confidence, daysSply <= 5)
  */
 export function getAttentionItems(items: ParsedItem[]): ParsedItem[] {
   return items.filter(
@@ -11,7 +11,7 @@ export function getAttentionItems(items: ParsedItem[]): ParsedItem[] {
 }
 
 /**
- * Filter items by critical level (daysSply <= 2)
+ * Filter items by critical level (HIGH confidence, daysSply <= 2)
  */
 export function getCriticalItems(items: ParsedItem[]): ParsedItem[] {
   return items.filter(
@@ -20,12 +20,28 @@ export function getCriticalItems(items: ParsedItem[]): ParsedItem[] {
 }
 
 /**
- * Filter items needing review (low confidence or null daysSply)
+ * Filter items for watch list (MEDIUM confidence, daysSply <= 5)
+ */
+export function getWatchListItems(items: ParsedItem[]): ParsedItem[] {
+  return items.filter(
+    i => i.confidence === 'medium' && i.daysSply !== null && i.daysSply <= 5
+  );
+}
+
+/**
+ * Filter items needing review (LOW confidence or null daysSply)
  */
 export function getNeedsReviewItems(items: ParsedItem[]): ParsedItem[] {
   return items.filter(
     i => i.confidence === 'low' || i.daysSply === null
   );
+}
+
+/**
+ * Get all items (for the "All Items" tab)
+ */
+export function getAllItems(items: ParsedItem[]): ParsedItem[] {
+  return items;
 }
 
 /**
@@ -49,6 +65,7 @@ export function groupByVendor(items: ParsedItem[]): VendorGroup[] {
         items: [],
         criticalCount: 0,
         attentionCount: 0,
+        watchCount: 0,
         reviewCount: 0,
       });
     }
@@ -56,14 +73,21 @@ export function groupByVendor(items: ParsedItem[]): VendorGroup[] {
     const group = vendorMap.get(item.vendorId)!;
     group.items.push(item);
 
-    // Update counts
+    // Update counts based on confidence and daysSply
     if (item.confidence === 'low' || item.daysSply === null) {
+      // LOW confidence = needs review
       group.reviewCount++;
-    } else if (item.daysSply <= 2) {
-      group.criticalCount++;
-      group.attentionCount++;
-    } else if (item.daysSply <= 5) {
-      group.attentionCount++;
+    } else if (item.confidence === 'medium' && item.daysSply <= 5) {
+      // MEDIUM confidence with low supply = watch list
+      group.watchCount++;
+    } else if (item.confidence === 'high') {
+      // HIGH confidence
+      if (item.daysSply <= 2) {
+        group.criticalCount++;
+        group.attentionCount++;
+      } else if (item.daysSply <= 5) {
+        group.attentionCount++;
+      }
     }
   }
 
@@ -104,23 +128,29 @@ function itemsToSheetData(items: ParsedItem[]): object[] {
 export function exportToExcel(items: ParsedItem[], filename: string = 'sues-buying-guide.xlsx'): void {
   const wb = XLSX.utils.book_new();
 
-  // Attention sheet (≤5 days)
+  // Attention sheet (HIGH confidence, ≤5 days)
   const attentionItems = getAttentionItems(items);
   const attentionData = itemsToSheetData(attentionItems);
   const attentionSheet = XLSX.utils.json_to_sheet(attentionData);
-  XLSX.utils.book_append_sheet(wb, attentionSheet, 'Attention (≤5 days)');
+  XLSX.utils.book_append_sheet(wb, attentionSheet, 'Attention (HIGH)');
 
-  // Critical sheet (≤2 days)
+  // Critical sheet (HIGH confidence, ≤2 days)
   const criticalItems = getCriticalItems(items);
   const criticalData = itemsToSheetData(criticalItems);
   const criticalSheet = XLSX.utils.json_to_sheet(criticalData);
-  XLSX.utils.book_append_sheet(wb, criticalSheet, 'Critical (≤2 days)');
+  XLSX.utils.book_append_sheet(wb, criticalSheet, 'Critical (HIGH)');
 
-  // Needs Review sheet
+  // Watch List sheet (MEDIUM confidence, ≤5 days)
+  const watchItems = getWatchListItems(items);
+  const watchData = itemsToSheetData(watchItems);
+  const watchSheet = XLSX.utils.json_to_sheet(watchData);
+  XLSX.utils.book_append_sheet(wb, watchSheet, 'Watch List (MED)');
+
+  // Needs Review sheet (LOW confidence)
   const reviewItems = getNeedsReviewItems(items);
   const reviewData = itemsToSheetData(reviewItems);
   const reviewSheet = XLSX.utils.json_to_sheet(reviewData);
-  XLSX.utils.book_append_sheet(wb, reviewSheet, 'Needs Review');
+  XLSX.utils.book_append_sheet(wb, reviewSheet, 'Needs Review (LOW)');
 
   // Download
   XLSX.writeFile(wb, filename);
@@ -147,27 +177,52 @@ export function exportToCSV(items: ParsedItem[], filename: string = 'sues-buying
  * Generate email summary text
  */
 export function generateEmailSummary(items: ParsedItem[]): string {
-  const groups = groupByVendor(getAttentionItems(items));
+  const attentionItems = getAttentionItems(items);
   const criticalItems = getCriticalItems(items);
+  const watchItems = getWatchListItems(items);
   const reviewItems = getNeedsReviewItems(items);
+  const groups = groupByVendor(attentionItems);
 
   let summary = `INVENTORY ATTENTION REPORT\n`;
   summary += `Generated: ${new Date().toLocaleString()}\n`;
   summary += `${'='.repeat(50)}\n\n`;
 
-  summary += `SUMMARY:\n`;
-  summary += `  - Items needing attention (≤5 days): ${getAttentionItems(items).length}\n`;
-  summary += `  - CRITICAL items (≤2 days): ${criticalItems.length}\n`;
-  summary += `  - Items needing review: ${reviewItems.length}\n\n`;
+  summary += `HIGH CONFIDENCE ATTENTION (${attentionItems.length} items)\n`;
+  summary += `${'-'.repeat(40)}\n`;
+  summary += `  🔴 CRITICAL (Sply ≤ 2): ${criticalItems.length} items\n`;
+  summary += `  🟡 WARNING (Sply 3-5): ${attentionItems.length - criticalItems.length} items\n\n`;
+
+  summary += `WATCH LIST - MEDIUM CONFIDENCE (${watchItems.length} items)\n`;
+  summary += `${'-'.repeat(40)}\n`;
+  summary += `  🟠 May need attention, verify data\n\n`;
+
+  summary += `NEEDS REVIEW (${reviewItems.length} items)\n`;
+  summary += `${'-'.repeat(40)}\n`;
+  summary += `  ❓ Insufficient data for classification\n`;
+  summary += `${'='.repeat(50)}\n\n`;
 
   if (criticalItems.length > 0) {
-    summary += `CRITICAL ITEMS (≤2 DAYS SUPPLY):\n`;
+    summary += `CRITICAL ITEMS DETAIL:\n`;
     summary += `${'-'.repeat(40)}\n`;
     for (const item of criticalItems) {
       summary += `  ${item.prodNo} - ${item.brand} ${item.description}\n`;
       summary += `    Vendor: ${item.vendorName}\n`;
-      summary += `    Avg: ${item.avg ?? 'N/A'}, Avail: ${item.avail ?? 'N/A'}, On Order: ${item.onOrder ?? '-'}, Days: ${item.daysSply}\n\n`;
+      summary += `    Avail: ${item.avail ?? 'N/A'} | On Order: ${item.onOrder ?? '-'} | Days Supply: ${item.daysSply} ⚠️\n\n`;
     }
+  }
+
+  if (watchItems.length > 0) {
+    summary += `\nWATCH LIST ITEMS (MEDIUM CONFIDENCE):\n`;
+    summary += `${'-'.repeat(40)}\n`;
+    for (const item of watchItems.slice(0, 15)) {
+      summary += `  ${item.prodNo} - ${item.brand} ${item.description}\n`;
+      summary += `    Vendor: ${item.vendorName}\n`;
+      summary += `    Avail: ${item.avail ?? 'N/A'} | Days Supply: ${item.daysSply} | Cols: ${item.numericColumns}\n`;
+    }
+    if (watchItems.length > 15) {
+      summary += `  ... and ${watchItems.length - 15} more\n`;
+    }
+    summary += '\n';
   }
 
   summary += `\nATTENTION BY VENDOR:\n`;
@@ -182,7 +237,7 @@ export function generateEmailSummary(items: ParsedItem[]): string {
       if (item.confidence === 'high' && item.daysSply !== null && item.daysSply <= 5) {
         const critical = item.daysSply <= 2 ? ' [CRITICAL]' : '';
         summary += `  ${item.prodNo} - ${item.brand} ${item.description}${critical}\n`;
-        summary += `    Avg: ${item.avg ?? 'N/A'}, Avail: ${item.avail ?? 'N/A'}, On Order: ${item.onOrder ?? '-'}, Days: ${item.daysSply}\n`;
+        summary += `    Avail: ${item.avail ?? 'N/A'}, On Order: ${item.onOrder ?? '-'}, Days: ${item.daysSply}\n`;
       }
     }
     summary += '\n';
